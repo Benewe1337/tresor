@@ -1,0 +1,34 @@
+{
+  "name": "tresor",
+  "version": "0.1.0",
+  "description": "Lokale API-Tokens im macOS-Schlüsselbund, injiziert ohne dass Claude sie sieht",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "build": "tsc && chmod +x dist/cli.js dist/server.js",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@napi-rs/keyring": "^2.1.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.12"
+  },
+  "private": true,
+  "bin": {
+    "tresor": "./dist/cli.js",
+    "tresor-mcp": "./dist/server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Benewe1337/tresor.git"
+  }
+}
