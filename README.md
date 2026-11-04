@@ -1,11 +1,12 @@
 # tresor
 
-**Let Claude Code use your API tokens without ever seeing them.**
+**Let coding agents use your API tokens without ever seeing them.**
 
-Tokens live in your operating system's keychain or stay in your password manager. Claude works with names (`openai`, `github`); tresor injects the real value into the command, HTTP request or `.env` file and redacts it from everything Claude gets back.
+Tokens live in your operating system's keychain, stay in your password manager, or are minted fresh for a few minutes. The agent works with names (`openai`, `github`); tresor injects the real value into the command, HTTP request or `.env` file and redacts it from everything the agent gets back.
 
-- Works on **macOS, Windows and Linux**
-- Reads from **1Password, Bitwarden / Vaultwarden, Bitwarden Secrets Manager, KeePassXC, pass, gopass, LastPass** or any CLI you configure
+- Works on **macOS, Windows and Linux**, with **Claude Code, Cursor, OpenAI Codex, Gemini CLI and GitHub Copilot in VS Code**
+- Reads from **1Password, Bitwarden / Vaultwarden, Bitwarden Secrets Manager, KeePassXC, Proton Pass, Dashlane, Keeper, pass, gopass, LastPass, AWS Secrets Manager, Azure Key Vault, Google Secret Manager, Doppler, Infisical, HashiCorp Vault / OpenBao** or any CLI you configure
+- **Short-lived credentials** instead of long-lived tokens: AWS SSO, GitHub App installation tokens, OAuth refresh, gcloud, Azure, or any CLI
 - **Finds real leaks**: because tresor knows the values, `tresor scan` finds them in files, staged commits and Claude transcripts — no guessing by pattern
 - **Migrates `.env` files** into the keychain and keeps a committable `.tresor.json` mapping
 - **Per-secret policies** (allowed commands, confirm on use, expiry) and a usage log
@@ -27,6 +28,15 @@ Tokens live in your operating system's keychain or stay in your password manager
 ```
 
 On first start the plugin installs its runtime dependencies (needs Node.js ≥ 20 and npm).
+
+**Cursor, Codex, Gemini CLI, VS Code**: install the command-line tool (below), then
+
+```bash
+tresor install all --dry-run      # shows which config files would change
+tresor install all                # or: tresor install cursor | codex | gemini | vscode
+```
+
+See [Other agents](#other-agents) for what exactly is written where.
 
 **Command-line tool** for storing tokens and unlocking password managers in your own terminal:
 
@@ -86,23 +96,54 @@ tresor link db pass "work/postgres#user"
 | `keepassxc` | `keepassxc-cli` | `group/entry[#attribute\|#totp]` | `tresor setup keepassxc --db file.kdbx [--keyfile k] [--no-password]` |
 | `pass` | `pass` | `path[#field]` | gpg-agent |
 | `gopass` | `gopass` | `path[#key]` | gpg-agent / age |
+| `protonpass` | `pass-cli` | `pass://vault/item/field` | `pass-cli login` (personal access token sessions last 2 h) |
+| `dashlane` | `dcli` | `dl://<item id>/<field>` | `dcli devices register` + `DASHLANE_SERVICE_DEVICE_KEYS`, or an unlocked `dcli` |
+| `keeper` | `keeper` | `record UID[#password\|username\|totp\|field]` | `keeper this-device persistent-login on` |
+| `pass` | `pass` | `path[#field]` | gpg-agent |
+| `gopass` | `gopass` | `path[#key]` | gpg-agent / age |
 | `lastpass` | `lpass` | `name or id[#field]` | `lpass login` |
+| `aws-sm` | `aws` | `name or ARN[@stage][#jsonKey]` | any AWS credentials (`AWS_PROFILE`, SSO …) |
+| `azure-kv` | `az` | `vault/secret[/version]` or the secret id URL | `az login` |
+| `gcp-sm` | `gcloud` | `[project/]secret[@version][#jsonKey]` | `gcloud auth login` |
+| `doppler` | `doppler` | `[project/config/]NAME` | `doppler login` or `DOPPLER_TOKEN` |
+| `infisical` | `infisical` | `projectId/env/[folder/…]NAME` | `infisical login` or `INFISICAL_TOKEN` |
+| `vault` / `openbao` | `vault` / `bao` | `mount/path[@version]#field` | `VAULT_ADDR` + `VAULT_TOKEN` (`BAO_*`) |
 
-Claude can link entries too (`tresor_link`), but only after you approve it in a dialog.
+The agent can link entries too (`tresor_link`), but only after you approve it in a dialog. All CLIs run without a terminal; if one would ask for a login, tresor times out and tells you what to run instead.
 
-**Custom providers** (Doppler, Infisical, HashiCorp Vault, Dashlane, …) go into `providers.json` in the tresor folder (`~/.config/tresor`, on Windows `%APPDATA%\tresor`):
+**Custom providers** (anything else with a CLI) go into `providers.json` in the tresor folder (`~/.config/tresor`, on Windows `%APPDATA%\tresor`):
 
 ```json
 {
   "custom": {
-    "doppler":   { "command": ["doppler", "secrets", "get", "{ref}", "--plain"] },
-    "vault":     { "command": ["vault", "kv", "get", "-field=value", "{ref}"] },
-    "infisical": { "command": ["infisical", "secrets", "get", "{ref}", "--output", "json"], "jsonPath": "0.secretValue" }
+    "sops":   { "command": ["sops", "--decrypt", "--extract", "{ref}", "secrets.enc.yaml"] },
+    "teampw": { "command": ["teampw-cli", "get", "{ref}", "--json"], "jsonPath": "data.password" }
   }
 }
 ```
 
 `{ref}` is passed as a single argument, never through a shell. `jsonPath` (optional, dot-separated) picks the value out of JSON output.
+
+## Short-lived credentials
+
+A dynamic secret stores no token at all. It names a *generator* that mints a fresh credential when it is used; tresor caches it in memory until shortly before it expires (the later of 60 s or 10 % of its lifetime) and never caches failures.
+
+```bash
+tresor dynamic aws-dev aws-sso --profile dev                 # bundle: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN
+tresor dynamic gcp gcloud --impersonate ci@proj.iam.gserviceaccount.com
+tresor dynamic arm azure --resource https://management.azure.com/
+tresor dynamic bot github-app --app-id 123456 --installation-id 7890 --private-key-file app.pem \
+                              --repos tresor --permissions contents=read
+tresor dynamic crm oauth --token-url https://login.example.com/oauth/token --client-id abc --auth basic
+tresor dynamic db command --argv '["vault","read","-format=json","database/creds/app"]' \
+                          --output PGUSER=data.username --output PGPASSWORD=data.password --ttl-path lease_duration
+```
+
+- **Single tokens** (`gcloud`, `azure`, `github-app`, `oauth`, `command --json-path`/raw) are used like any secret: `env: {"GH_TOKEN": "bot"}`, `{{secret:crm}}`.
+- **Bundles** (`aws-sso`, `command --output …`) set several variables at once: `tresor run -b aws-dev -- aws s3 ls`, `"bundles": ["aws-dev"]` in `.tresor.json`, or `bundles` in `tresor_run`.
+- **GitHub App**: the private key goes into the OS keychain (you can delete the `.pem` afterwards); tokens live 1 h and can be limited to repositories and permissions. Signed locally with `node:crypto`.
+- **OAuth**: client secret and refresh token are asked for hidden and kept in the keychain. Rotated refresh tokens are saved before the access token is used, under a lock, so parallel uses never burn the grant.
+- **Expired logins** (`aws sso login`, `gcloud auth login`, `az login`, an `invalid_grant`) are reported with the command to run. tresor never starts a login itself.
 
 ## Move a `.env` into tresor
 
@@ -151,7 +192,7 @@ tresor log                                   # who used what, when, for which co
 
 Policies only apply to what the agent does through the MCP server; your own `tresor run` is not restricted. Claude can read policies (`tresor_list`) but cannot change them.
 
-## What Claude can do (MCP tools)
+## What the agent can do (MCP tools)
 
 | Tool | Purpose |
 |---|---|
@@ -159,7 +200,7 @@ Policies only apply to what the agent does through the MCP server; your own `tre
 | `tresor_providers` | Installed/unlocked password managers and their reference syntax |
 | `tresor_request` | Open a dialog so you can enter a value |
 | `tresor_link` | Link a password-manager entry, **only after you confirm in a dialog** |
-| `tresor_run` | Run a command with `env: {"GH_TOKEN": "github"}` plus the project's `.tresor.json`, output is redacted |
+| `tresor_run` | Run a command with `env: {"GH_TOKEN": "github"}`, `bundles: ["aws-dev"]` and the project's `.tresor.json`; output is redacted |
 | `tresor_http` | HTTPS request with `{"Authorization": "Bearer {{secret:openai}}"}` |
 | `tresor_write_file` | Write e.g. a `.env` with `KEY={{secret:openai}}` (mode 600); Claude cannot read it back |
 | `tresor_scan` | Look for stored values in files, staged changes or transcripts |
@@ -169,6 +210,19 @@ Policies only apply to what the agent does through the MCP server; your own `tre
 Deliberately **missing**: any tool that returns a value, deletes one, or changes a policy.
 
 The bundled skill (`skills/tresor/SKILL.md`) tells the agent when to reach for these tools, how to name secrets, and what to do with each error message.
+
+## Other agents
+
+`tresor install <agent>` merges three things into the agent's user configuration, backs every file up first (`*.bak-tresor-<time>`), and `tresor uninstall <agent>` removes exactly those entries again. Files with comments (JSONC) are refused rather than rewritten.
+
+| Agent | MCP server | Guard hook | Skill |
+|---|---|---|---|
+| Cursor | `~/.cursor/mcp.json` | `~/.cursor/hooks.json` – `beforeShellExecution`, `beforeReadFile`, `preToolUse`, fail-closed | `~/.agents/skills/tresor` |
+| OpenAI Codex | `~/.codex/config.toml` `[mcp_servers.tresor]` | `~/.codex/hooks.json` `PreToolUse` – trust it once via `/hooks` | `~/.agents/skills/tresor` |
+| Gemini CLI | `~/.gemini/settings.json` `mcpServers` | same file, `hooks.BeforeTool` | `~/.agents/skills/tresor` |
+| VS Code (Copilot) | `<VS Code user dir>/mcp.json` `servers` | `~/.copilot/hooks/tresor.json` `preToolUse` | `~/.agents/skills/tresor` |
+
+The guard speaks each agent's hook protocol (`tresor-guard --format claude|cursor|gemini|copilot`; Codex and VS Code's local harness use the Claude format). Everything above follows the vendors' documentation as of November 2026. **Not verified against the live tools:** the Cursor CLI running `hooks.json`, VS Code's hook location for its local agent harness, the exact Gemini CLI `tool_input` field names, and whether Antigravity CLI (Gemini CLI's successor for some accounts) reads the same settings. If a blocked command is not reported in your agent, please open an issue.
 
 ## Starting other MCP servers with tokens
 
@@ -186,8 +240,9 @@ It does **not** protect against an agent that is determined to get a value: anyt
 
 The guard hook (`tresor-guard`) blocks, inside Claude sessions:
 - reading OS credential stores directly (`security find-generic-password`, `secret-tool lookup`, `keyctl print`, `Get-StoredCredential`, `PasswordVault`, keyring libraries),
-- read commands of password-manager CLIs (`op read`, `bw get`/`unlock`/`list`, `bws secret`, `keepassxc-cli show`, `pass show`, `gopass show`, `lpass show`),
-- `tresor set|rm|run|link|unlock|setup|policy` and `tresor profile allow|add|rm`,
+- read commands of password-manager CLIs (`op read`, `bw get`/`unlock`/`list`, `bws secret`, `keepassxc-cli show`, `pass show`, `gopass show`, `lpass show`, `pass-cli item view`, `dcli read`, `keeper clipboard-copy`),
+- secret and token commands of cloud CLIs (`aws secretsmanager get-secret-value`, `aws configure export-credentials`, `az keyvault secret show`, `az account get-access-token`, `gcloud secrets versions access`, `gcloud auth print-access-token`, `doppler secrets get`, `infisical secrets get`, `vault kv get`),
+- `tresor set|rm|run|link|unlock|setup|policy|dynamic|install|uninstall` and `tresor profile allow|add|rm`,
 - editing anything in the tresor folder (index, policies, trusted profiles, log) — via edit tools or shell,
 - reading files written by `tresor_write_file`.
 
@@ -204,6 +259,7 @@ Status commands like `bw status`, `op whoami` or `pass ls` stay allowed. If the 
 ## How it works
 
 - Local values: `@napi-rs/keyring`, service `tresor`, account = secret name. Provider sessions and passwords (Bitwarden session, KeePassXC password, bws token) are stored there as `__internal.*`.
+- Dynamic credentials are cached in the memory of the running MCP server only; GitHub App keys and OAuth client secrets / refresh tokens live in the keychain under `__internal.*`.
 - Metadata files contain no values: `index.json` (names, sources, hosts, policies), `providers.json`, `written-files.txt`, `trusted-profiles.json`, `audit.log` (JSON lines, rotated at 5 MB).
 - Processes are started without a shell via `cross-spawn` (including `.cmd` shims on Windows). The KeePassXC password is piped through stdin, never passed as an argument.
 

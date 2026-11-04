@@ -37,16 +37,24 @@ export async function runWithSecrets(store, input, hooks = NO_HOOKS) {
     if (input.command.length === 0)
         throw new Error('command must not be empty');
     const envMap = input.env ?? {};
-    const names = [...Object.values(envMap), ...placeholderNames(...input.command)];
+    const bundles = [...new Set(input.bundles ?? [])];
+    const singles = [...Object.values(envMap), ...placeholderNames(...input.command)];
     const usage = {
         action: 'run',
         program: programName(input.command[0]),
         detail: `${input.command.join(' ').slice(0, 200)}${input.cwd ? `  (in ${input.cwd})` : ''}`,
     };
-    return guarded(hooks, names, usage, async () => {
-        const values = await store.resolveMany(names);
-        const redactor = new Redactor(values);
+    return guarded(hooks, [...singles, ...bundles], usage, async () => {
+        const values = await store.resolveMany(singles);
         const childEnv = { ...process.env };
+        const redactable = { ...values };
+        for (const b of bundles) {
+            for (const [envVar, v] of Object.entries(await store.resolveBundle(b))) {
+                childEnv[envVar] = v;
+                redactable[`${b}.${envVar}`] = v;
+            }
+        }
+        const redactor = new Redactor(redactable);
         for (const [envVar, name] of Object.entries(envMap))
             childEnv[envVar] = values[name];
         const [cmd, ...args] = input.command.map(a => fill(a, values));

@@ -3,13 +3,20 @@ import { dirname } from 'path';
 import { providersConfigPath } from '../paths.js';
 import { bitwarden, bitwardenSecretsManager } from './bitwarden.js';
 import { customProvider, gopass, lastpass, pass } from './cli-managers.js';
+import { awsSecretsManager, azureKeyVault, doppler, gcpSecretManager, hashicorpVault, infisical, openBao } from './cloud.js';
 import { keepassxc } from './keepassxc.js';
+import { dashlane, keeper, protonPass } from './more-managers.js';
 import { onePassword } from './onepassword.js';
 import { ProviderError, type Provider, type ProvidersConfig } from './types.js';
 
 export * from './types.js';
 
-export const BUILTIN_PROVIDERS: readonly Provider[] = [onePassword, bitwarden, bitwardenSecretsManager, keepassxc, pass, gopass, lastpass];
+export const BUILTIN_PROVIDERS: readonly Provider[] = [
+  // password managers
+  onePassword, bitwarden, bitwardenSecretsManager, keepassxc, protonPass, dashlane, keeper, pass, gopass, lastpass,
+  // cloud and team secret stores
+  awsSecretsManager, azureKeyVault, gcpSecretManager, doppler, infisical, hashicorpVault, openBao,
+];
 
 export function loadProvidersConfig(path = providersConfigPath()): ProvidersConfig {
   if (!existsSync(path)) return {};

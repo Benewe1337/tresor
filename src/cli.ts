@@ -8,7 +8,8 @@ import spawn from 'cross-spawn';
 import { existsSync } from 'fs';
 import { resolve as resolvePath } from 'path';
 import { appendAudit } from './audit.js';
-import { cmdImport, cmdLog, cmdPolicy, cmdProfile, cmdScan } from './cli-tools.js';
+import { cmdDynamic } from './cli-dynamic.js';
+import { cmdImport, cmdInstall, cmdLog, cmdPolicy, cmdProfile, cmdScan } from './cli-tools.js';
 import { askYesNo, fail, readHidden, say, takeFlag, takeSwitch } from './cli-util.js';
 import { exec } from './platform/exec.js';
 import { takeClipboard } from './platform/clipboard.js';
@@ -39,10 +40,20 @@ Link from a password manager (nothing is copied):
   tresor setup bws                 access token for Bitwarden Secrets Manager
 
 Use:
-  tresor run [-e VAR=name ...] [--no-profile] -- <cmd> [args]
+  tresor run [-e VAR=name ...] [-b bundle ...] [--no-profile] -- <cmd> [args]
         start a command with secrets as env vars (stdio passed through, e.g. for MCP servers).
-        Without -e the nearest .tresor.json is used. In args: {{secret:name}}
+        Without -e/-b the nearest .tresor.json is used. In args: {{secret:name}}
   tresor profile [allow | add VAR=name ... | rm VAR ...]   project mapping (.tresor.json)
+
+Short-lived credentials (minted on use, cached until shortly before expiry):
+  tresor dynamic <name> aws-sso --profile <p>                 bundle: AWS_ACCESS_KEY_ID, …
+  tresor dynamic <name> gcloud [--impersonate <sa>] [--account <a>]
+  tresor dynamic <name> azure [--resource <uri> | --scope <s>] [--tenant <t>]
+  tresor dynamic <name> github-app --app-id <id> --installation-id <n> --private-key-file <pem>
+                       [--repos a,b] [--permissions contents=read,issues=write] [--api-url <url>]
+  tresor dynamic <name> oauth --token-url <url> --client-id <id> [--auth basic|post|none] [--scope <s>]
+  tresor dynamic <name> command --argv '["vault","read","-format=json","db/creds/app"]'
+                       [--json-path data.password | --output VAR=json.path ...] [--expires-path p | --ttl-path p | --ttl s]
 
 Protect:
   tresor scan [paths…] [--staged] [--transcripts] [--local-only]
@@ -51,6 +62,10 @@ Protect:
   tresor policy <name> [--allow-cmd gh,git] [--confirm always|session|off] [--expires 2027-01-31|off]
                        [--host h] [--clear-hosts] [--clear-allow-cmd]
   tresor log [name] [-n 50]        usage log (no values)
+
+Other agents (MCP server + guard hook + skill):
+  tresor install <cursor|codex|gemini|vscode|all> [--dry-run]
+  tresor uninstall <cursor|codex|gemini|vscode|all>
 
 General:
   tresor list                      names + metadata (never values)
@@ -88,7 +103,7 @@ function cmdList(store: SecretStore) {
   const items = store.list();
   if (items.length === 0) return say('(no secrets)');
   for (const s of items) {
-    const where = s.source ? `[${s.source.provider}] ${s.source.ref}` : '[local]';
+    const where = s.dynamic ? `[dynamic ${s.dynamic.type}]` : s.source ? `[${s.source.provider}] ${s.source.ref}` : '[local]';
     const hosts = s.hosts ? `  → ${s.hosts.join(', ')}` : '';
     const flags = [
       s.policy?.allowCommands ? `cmds: ${s.policy.allowCommands.join(',')}` : '',
@@ -135,15 +150,15 @@ async function cmdSetup(store: SecretStore, args: string[]) {
 }
 
 /** Profile env for `tresor run` without -e: asks once per profile content in a terminal. */
-async function profileMappings(): Promise<Array<[string, string]>> {
+async function profileMappings(): Promise<{ env: Array<[string, string]>; bundles: string[] }> {
   const profile = findProfile();
-  if (!profile) return [];
+  if (!profile) return { env: [], bundles: [] };
   if (!isTrusted(profile)) {
     say(`${profile.path} wants to inject:\n${describeProfile(profile)}`);
     if (!(await askYesNo('Trust this profile (until it changes)?'))) fail('profile not trusted – run "tresor profile allow" or pass -e / --no-profile');
     trustProfile(profile);
   }
-  return Object.entries(profile.env);
+  return { env: Object.entries(profile.env), bundles: profile.bundles };
 }
 
 async function cmdRun(store: SecretStore, args: string[]) {
@@ -152,17 +167,21 @@ async function cmdRun(store: SecretStore, args: string[]) {
   const opts = args.slice(0, sep);
   const command = args.slice(sep + 1);
   const noProfile = takeSwitch(opts, '--no-profile');
+  const explicitBundles = takeFlag(opts, '-b');
   const explicit = takeFlag(opts, '-e').map(m => {
     const eq = m.indexOf('=');
     if (eq <= 0) fail(`bad mapping "${m}", expected VAR=name`);
     return [m.slice(0, eq), m.slice(eq + 1)] as [string, string];
   });
-  // Explicit -e (e.g. in an MCP server config) never pulls in a project profile implicitly.
-  const mappings = explicit.length || noProfile ? explicit : await profileMappings();
+  // Explicit -e/-b (e.g. in an MCP server config) never pulls in a project profile implicitly.
+  const fromProfile = explicit.length || explicitBundles.length || noProfile ? { env: [], bundles: [] } : await profileMappings();
+  const mappings = [...fromProfile.env, ...explicit];
+  const bundles = [...new Set([...fromProfile.bundles, ...explicitBundles])];
   const names = [...mappings.map(([, n]) => n), ...placeholderNames(...command)];
   const values = await store.resolveMany(names);
-  if (names.length) appendAudit({ via: 'cli', action: 'run', secrets: [...new Set(names)], detail: command.join(' ').slice(0, 200), ok: true });
   const env: NodeJS.ProcessEnv = { ...process.env };
+  for (const b of bundles) Object.assign(env, await store.resolveBundle(b));
+  if (names.length || bundles.length) appendAudit({ via: 'cli', action: 'run', secrets: [...new Set([...names, ...bundles])], detail: command.join(' ').slice(0, 200), ok: true });
   for (const [envVar, name] of mappings) env[envVar] = values[name];
   const [cmd, ...rest] = command.map(a => fill(a, values));
   const child = spawn(cmd, rest, { env, stdio: 'inherit' });
@@ -201,6 +220,9 @@ async function main() {
     case 'scan': return cmdScan(store, args);
     case 'policy': return cmdPolicy(store, args);
     case 'log': return cmdLog(args);
+    case 'dynamic': return cmdDynamic(store, args);
+    case 'install': return cmdInstall(args, false);
+    case 'uninstall': return cmdInstall(args, true);
     case undefined: case 'help': case '-h': case '--help': return say(USAGE);
     default: fail(`unknown command "${cmd}"\n\n${USAGE}`);
   }

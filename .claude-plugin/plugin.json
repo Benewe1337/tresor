@@ -1,8 +1,8 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "tresor",
-  "version": "0.4.0",
-  "description": "Let Claude use your API tokens without ever seeing them: OS keychain or your password manager (1Password, Bitwarden, KeePassXC, pass, …), injected into commands, HTTP requests and .env files with redacted output.",
+  "version": "0.5.0",
+  "description": "Let coding agents use your API tokens without ever seeing them: OS keychain, 17 password managers and secret stores, short-lived credentials, leak scanner, policies.",
   "author": {
     "name": "Benewe1337"
   },

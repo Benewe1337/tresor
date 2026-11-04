@@ -21,14 +21,16 @@ function parseProfile(path, raw) {
     catch {
         throw new Error(`${path}: invalid JSON`);
     }
-    const env = json?.env;
-    if (!env || typeof env !== 'object' || Array.isArray(env))
-        throw new Error(`${path}: expected {"env": {"VAR": "secret-name"}}`);
+    const { env = {}, bundles = [] } = (json ?? {});
+    if (typeof env !== 'object' || env === null || Array.isArray(env))
+        throw new Error(`${path}: expected {"env": {"VAR": "secret-name"}, "bundles": ["name"]}`);
     for (const [k, v] of Object.entries(env)) {
         if (!ENV_VAR_RE.test(k) || typeof v !== 'string')
             throw new Error(`${path}: bad mapping "${k}"`);
     }
-    return { path, env: env, hash: createHash('sha256').update(raw).digest('hex') };
+    if (!Array.isArray(bundles) || bundles.some(b => typeof b !== 'string'))
+        throw new Error(`${path}: "bundles" must be a list of secret names`);
+    return { path, env: env, bundles: bundles, hash: createHash('sha256').update(raw).digest('hex') };
 }
 /** Nearest .tresor.json from `cwd` upwards, or null. */
 export function findProfile(cwd = process.cwd()) {
@@ -44,14 +46,15 @@ export function findProfile(cwd = process.cwd()) {
     }
 }
 /** Adds/overrides mappings in `<dir>/.tresor.json`, creating it if needed. */
-export function mergeProfile(dir, mappings, remove = []) {
+export function mergeProfile(dir, mappings, remove = [], addBundles = []) {
     const path = join(resolve(dir), PROFILE_FILENAME);
-    const current = existsSync(path) ? parseProfile(path, readFileSync(path, 'utf-8')).env : {};
-    const next = Object.fromEntries(Object.entries({ ...current, ...mappings }).filter(([k]) => !remove.includes(k)).sort(([a], [b]) => a.localeCompare(b)));
+    const current = existsSync(path) ? parseProfile(path, readFileSync(path, 'utf-8')) : { env: {}, bundles: [] };
+    const next = Object.fromEntries(Object.entries({ ...current.env, ...mappings }).filter(([k]) => !remove.includes(k)).sort(([a], [b]) => a.localeCompare(b)));
     for (const k of Object.keys(mappings))
         if (!ENV_VAR_RE.test(k))
             throw new Error(`Invalid environment variable name "${k}"`);
-    const raw = JSON.stringify({ env: next }, null, 2) + '\n';
+    const bundles = [...new Set([...current.bundles, ...addBundles])].filter(b => !remove.includes(b));
+    const raw = JSON.stringify(bundles.length ? { env: next, bundles } : { env: next }, null, 2) + '\n';
     writeFileSync(path, raw);
     return parseProfile(path, raw);
 }
@@ -76,5 +79,8 @@ export function trustProfile(profile) {
     renameSync(`${file}.tmp`, file);
 }
 export function describeProfile(profile) {
-    return Object.entries(profile.env).map(([k, v]) => `${k} ← ${v}`).join('\n');
+    return [
+        ...Object.entries(profile.env).map(([k, v]) => `${k} ← ${v}`),
+        ...profile.bundles.map(b => `(bundle) ${b}`),
+    ].join('\n');
 }

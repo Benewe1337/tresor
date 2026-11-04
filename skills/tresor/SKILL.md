@@ -28,7 +28,9 @@ Name secrets after the service, lowercase with dashes: `openai`, `github-ci`, `s
 | Project needs a `.env` / config file | `tresor_write_file` | `{"path": "/abs/project/.env", "content": "OPENAI_API_KEY={{secret:openai}}\n"}` |
 | MCP server or long-running process needs a token | edit its config to start through the CLI | `"command": "tresor", "args": ["run", "-e", "API_KEY=name", "--", "npx", "-y", "some-mcp"]` |
 
-**Project profiles.** If the project has a `.tresor.json` (`{"env": {"OPENAI_API_KEY": "openai"}}`), `tresor_run` injects those mappings automatically — just run `npm test`, `npm run dev` etc. through `tresor_run`. The first time, the user approves the profile in a dialog; if they decline, say so and continue with `useProfile: false` or explicit `env`. You may create or edit `.tresor.json` (it holds names only); every change needs the user's approval again.
+**Short-lived credentials.** `tresor_list` shows `dynamic` entries: tresor mints them on use (AWS SSO, GitHub App, OAuth, gcloud, Azure …). Single-token ones are used like any secret. **Bundles** (e.g. an `aws-sso` entry) set several variables at once — pass them as `bundles: ["aws-dev"]` to `tresor_run` instead of mapping env vars. Prefer a dynamic secret over a long-lived token when both exist.
+
+**Project profiles.** If the project has a `.tresor.json` (it may also list `"bundles"`) (`{"env": {"OPENAI_API_KEY": "openai"}}`), `tresor_run` injects those mappings automatically — just run `npm test`, `npm run dev` etc. through `tresor_run`. The first time, the user approves the profile in a dialog; if they decline, say so and continue with `useProfile: false` or explicit `env`. You may create or edit `.tresor.json` (it holds names only); every change needs the user's approval again.
 
 Rules of thumb:
 - Prefer env vars over `{{secret:NAME}}` in command args (args are visible in the process list).
@@ -54,6 +56,10 @@ Rules of thumb:
 | 1Password `not signed in` | User enables the 1Password app's CLI integration or runs `op signin`. |
 | `… is not installed or not on PATH` | That password-manager CLI is missing; tell the user which one. |
 | `may only be sent to: …` | The secret is pinned to other hosts. Do not work around it; ask the user. |
+| `… holds several values …; use it as a bundle` | Pass the name in `bundles`, not in `env`. |
+| `aws-sso: … Run: aws sso login --profile …` (or `gcloud auth login`, `az login`) | The user's cloud login expired. Ask them to run that command in their terminal, then retry. |
+| `oauth: … refresh token is expired or revoked` | The user must log in again and re-create it (`tresor dynamic <name> oauth …`). |
+| `github-app: HTTP 401 / 404` | Wrong app id / key, clock skew, or the app is not installed there. Tell the user. |
 | `may only be used with: …` / `may not be written to files` | A policy restricts this secret to certain programs. Use one of them or ask the user (`tresor policy <name>`). |
 | `User did not allow using …` | The user declined the confirmation dialog. Do not retry silently; ask what they want. |
 | `expired on …` (warning) | It still worked; tell the user to rotate the token and update it. |
@@ -61,7 +67,7 @@ Rules of thumb:
 | `Credential store: …` (Linux) | No unlocked Secret Service; the user needs gnome-keyring/KWallet/KeePassXC running. |
 | Hook says `tresor-guard: …` | You tried to read a secret directly. Stop and use the tools above instead. |
 
-The `tresor` terminal commands (`set`, `rm`, `run`, `link`, `unlock`, `setup`, `policy`, `profile allow`) are for the user in their own terminal. You cannot run them, and you should not try to work around the guard.
+The `tresor` terminal commands (`set`, `rm`, `run`, `link`, `unlock`, `setup`, `policy`, `dynamic`, `install`, `profile allow`) are for the user in their own terminal. You cannot run them, and you should not try to work around the guard.
 
 ## Removing or changing secrets
 

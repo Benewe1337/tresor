@@ -10,6 +10,7 @@
 import { existsSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { isAbsolute, join, relative } from 'path';
+import { GUARD_FORMATS, normalize, render, type GuardFormat } from './agents/guard-formats.js';
 import { tresorHome, writtenFilesPath } from './paths.js';
 
 export interface HookInput {
@@ -20,7 +21,8 @@ export interface HookInput {
 
 /** Matches `bin sub…` in command position (start, after ; & | ( or $( ), with optional path, sudo/env, .exe/.cmd. */
 function cmd(bin: string, sub: string): RegExp {
-  const pre = String.raw`(?:^|[;&|({\`\n]|\$\()\s*(?:(?:sudo|exec|command|nohup|time)\s+|env\s+(?:\S+=\S*\s+)*)*(?:[^\s;&|()]*[\\/])?`;
+  // Command position: start, after ; & | ( ` newline $( , a quote (sh -c 'cmd'), or `-c` / `-lc` of a shell.
+  const pre = String.raw`(?:^|[;&|({\`\n'"]|\$\(|\s-l?c\s+)\s*(?:(?:sudo|exec|command|nohup|time)\s+|env\s+(?:\S+=\S*\s+)*)*(?:[^\s;&|()'"]*[\\/])?`;
   return new RegExp(`${pre}${bin}(?:\\.exe|\\.cmd)?\\s+${sub}`, 'i');
 }
 
@@ -46,8 +48,18 @@ export const RULES: readonly Rule[] = [
   { re: cmd('pass', LIST_ONLY), reason: MANAGER },
   { re: cmd('gopass', LIST_ONLY), reason: MANAGER },
   { re: cmd('lpass', '(show|export)'), reason: MANAGER },
+  { re: cmd('pass-cli', 'item\\s+view'), reason: MANAGER },
+  { re: cmd('dcli', '(read|password|note|secret|export)'), reason: MANAGER },
+  { re: cmd('keeper', '.*\\b(clipboard-copy|get|export|download-attachment)\\b'), reason: MANAGER },
+  // Cloud / team secret stores and credential minting
+  { re: cmd('aws', '(.*\\s)?(secretsmanager\\s+get-secret-value|configure\\s+export-credentials|ssm\\s+get-parameters?\\b.*--with-decryption)'), reason: MANAGER },
+  { re: cmd('az', '(keyvault\\s+secret\\s+(show|download)|account\\s+get-access-token)'), reason: MANAGER },
+  { re: cmd('gcloud', '(secrets\\s+versions\\s+access|auth\\s+(print-access-token|print-identity-token|application-default\\s+print-access-token))'), reason: MANAGER },
+  { re: cmd('doppler', '(secrets\\s+(get|download)|run)\\b'), reason: MANAGER },
+  { re: cmd('infisical', '((sm\\s+)?secrets\\s+get|export|run)\\b'), reason: MANAGER },
+  { re: cmd('(vault|bao)', '(kv\\s+get|read|token\\s+create)\\b'), reason: MANAGER },
   // tresor's own human-only commands
-  { re: cmd('tresor', '(set|rm|delete|run|unlock|lock|setup|link|policy)\\b'), reason: 'tresor set/rm/run/link/unlock/setup/policy are for humans in their own terminal. Claude uses tresor_request, tresor_link, tresor_run.' },
+  { re: cmd('tresor', '(set|rm|delete|run|unlock|lock|setup|link|policy|dynamic|install|uninstall)\\b'), reason: 'tresor set/rm/run/link/unlock/setup/policy/dynamic/install are for humans in their own terminal. Agents use tresor_request, tresor_link, tresor_run.' },
   { re: cmd('tresor', 'profile\\s+(allow|add|rm)\\b'), reason: 'Trusting or changing a tresor project profile is up to the user (tresor profile allow/add in their own terminal).' },
 ];
 
@@ -105,18 +117,33 @@ export function decide(input: HookInput, registry = writtenFilesPath(), home = t
   return null;
 }
 
-export async function main(): Promise<void> {
+/** First deny reason across all normalized tool calls of one hook event. */
+export function decideFor(format: GuardFormat, raw: Record<string, unknown>): string | null {
+  for (const input of normalize(format, raw)) {
+    const reason = decide(input);
+    if (reason) return reason;
+  }
+  return null;
+}
+
+export async function main(argv = process.argv.slice(2)): Promise<void> {
+  const i = argv.indexOf('--format');
+  const format = (i === -1 ? 'claude' : argv[i + 1]) as GuardFormat;
+  if (!GUARD_FORMATS.includes(format)) {
+    process.stderr.write(`tresor-guard: unknown --format "${format}" (${GUARD_FORMATS.join(', ')})\n`);
+    process.exit(2);
+  }
   const chunks: Buffer[] = [];
   for await (const c of process.stdin) chunks.push(c as Buffer);
-  let input: HookInput;
+  let raw: Record<string, unknown>;
   try {
-    input = JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}') as HookInput;
+    raw = JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}') as Record<string, unknown>;
   } catch {
+    // Exit 2 + stderr is the one "block" every supported agent understands: fail closed.
     process.stderr.write('tresor-guard: invalid hook input\n');
-    process.exit(2); // blocking error: fail closed
+    process.exit(2);
   }
-  const reason = decide(input);
-  if (reason) {
-    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } }));
-  }
+  const out = render(format, decideFor(format, raw));
+  if (out.stdout) process.stdout.write(out.stdout);
+  process.exitCode = out.exitCode;
 }

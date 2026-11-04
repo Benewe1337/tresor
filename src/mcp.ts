@@ -37,7 +37,7 @@ async function guarded<T>(fn: () => Promise<T> | T) {
 
 const SERVER_INSTRUCTIONS = `tresor holds the user's API tokens. You can USE them but never SEE them.
 - Need a token? tresor_list first. Missing → tresor_request (user types it into a native dialog) or, if it lives in a password manager, tresor_providers + tresor_link (user confirms in a dialog). Never ask the user to paste a token into the chat.
-- Use tokens only through tresor_run (env vars; a project's .tresor.json is applied automatically), tresor_http ({{secret:NAME}} placeholders) or tresor_write_file. Output comes back with values replaced by [tresor:NAME].
+- Use tokens only through tresor_run (env vars, or bundles for multi-value credentials like AWS; a project's .tresor.json is applied automatically), tresor_http ({{secret:NAME}} placeholders) or tresor_write_file. Output comes back with values replaced by [tresor:NAME].
 - Before committing, run tresor_scan with staged=true. Plaintext .env files can be moved into tresor with tresor_import.
 - Never try to read values another way (keychain CLIs, password-manager CLIs, printing env vars, reading files tresor wrote); a guard hook blocks this and it defeats the purpose.
 - Errors like "Bitwarden is locked", "not set up" or policy refusals need the user: tell them what to do, do not work around them.`;
@@ -46,23 +46,23 @@ const PLACEHOLDER_HINT = 'Reference secrets as {{secret:NAME}}.';
 const HOSTS = z.array(z.string()).optional().describe('Restrict http injection to these hostnames, e.g. ["api.openai.com"]');
 
 export function createServer(store: SecretStore, dialogs: Dialogs = { promptSecret, confirm }): McpServer {
-  const server = new McpServer({ name: 'tresor', version: '0.4.0' }, { instructions: SERVER_INSTRUCTIONS });
+  const server = new McpServer({ name: 'tresor', version: '0.5.0' }, { instructions: SERVER_INSTRUCTIONS });
   const hooks = mcpHooks(store, dialogs.confirm);
 
   /** Env mappings from the nearest .tresor.json, after the user trusted that exact content. */
-  async function profileEnv(cwd: string | undefined): Promise<{ env: Record<string, string>; path?: string }> {
+  async function profileEnv(cwd: string | undefined): Promise<{ env: Record<string, string>; bundles: string[]; path?: string }> {
     const profile = findProfile(cwd ?? process.cwd());
-    if (!profile || Object.keys(profile.env).length === 0) return { env: {} };
+    if (!profile || (Object.keys(profile.env).length === 0 && profile.bundles.length === 0)) return { env: {}, bundles: [] };
     if (!isTrusted(profile)) {
       const answer = await dialogs.confirm(`The project profile\n${profile.path}\nwants to inject these secrets into commands Claude runs there:\n\n${describeProfile(profile)}\n\nAllow (until the file changes)?`);
       if (answer !== 'yes') throw new Error(`Project profile ${profile.path} not trusted (${answer === 'timeout' ? 'dialog timed out' : 'user declined'}). Pass useProfile=false to run without it.`);
       trustProfile(profile);
     }
-    return { env: profile.env, path: profile.path };
+    return { env: profile.env, bundles: profile.bundles, path: profile.path };
   }
 
   server.registerTool('tresor_list', {
-    description: 'List secrets: names, descriptions, allowed hosts, policies, and for linked ones the password manager + reference. Never returns values.',
+    description: 'List secrets: names, descriptions, allowed hosts, policies, for linked ones the password manager + reference, for dynamic (short-lived) ones the generator type. Never returns values. Dynamic bundles (e.g. aws-sso) are used via tresor_run bundles.',
     inputSchema: {},
   }, () => guarded(() => store.list()));
 
@@ -121,15 +121,17 @@ export function createServer(store: SecretStore, dialogs: Dialogs = { promptSecr
     inputSchema: {
       command: z.array(z.string()).min(1).describe('argv, e.g. ["gh","api","user"]'),
       env: z.record(z.string(), z.string()).optional().describe('ENV_VAR → secret name, e.g. {"GH_TOKEN":"github"}; overrides the project profile'),
+      bundles: z.array(z.string()).optional().describe('Multi-value dynamic secrets that set their own env vars, e.g. ["aws-dev"] → AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN'),
       cwd: z.string().optional(),
       useProfile: z.boolean().optional().describe('Apply .tresor.json from cwd upwards (default true)'),
       timeoutMs: z.number().int().positive().max(600_000).optional(),
     },
   }, ({ useProfile = true, ...input }) => guarded(async () => {
-    const profile = useProfile ? await profileEnv(input.cwd) : { env: {} };
+    const profile = useProfile ? await profileEnv(input.cwd) : { env: {}, bundles: [] as string[] };
     const env = { ...profile.env, ...input.env };
-    const result = await runWithSecrets(store, { ...input, env }, hooks);
-    return { ...result, injected: Object.keys(env), ...(profile.path ? { profile: profile.path } : {}) };
+    const bundles = [...new Set([...profile.bundles, ...(input.bundles ?? [])])];
+    const result = await runWithSecrets(store, { ...input, env, bundles }, hooks);
+    return { ...result, injected: Object.keys(env), ...(bundles.length ? { bundles } : {}), ...(profile.path ? { profile: profile.path } : {}) };
   }));
 
   server.registerTool('tresor_http', {

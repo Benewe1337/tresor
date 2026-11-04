@@ -186,8 +186,8 @@ describe('pass, gopass, LastPass', () => {
 describe('custom providers', () => {
   it('substitutes {ref} and picks a JSON path', async () => {
     stubs.add('doppler', [{ match: ['secrets', 'get', 'OPENAI', '--json'], stdout: JSON.stringify({ OPENAI: { computed: VALUE } }) }]);
-    const store = makeStore({ custom: { doppler: { command: ['doppler', 'secrets', 'get', '{ref}', '--json'], jsonPath: 'OPENAI.computed' } } });
-    store.link('d', 'doppler', 'OPENAI');
+    const store = makeStore({ custom: { 'my-doppler': { command: ['doppler', 'secrets', 'get', '{ref}', '--json'], jsonPath: 'OPENAI.computed' } } });
+    store.link('d', 'my-doppler', 'OPENAI');
     expect(await store.resolve('d')).toBe(VALUE);
   });
 

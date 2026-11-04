@@ -83,7 +83,7 @@ describe('MCP tools', () => {
   it('tresor_providers lists all builtin managers', async () => {
     const { call } = await connect(store);
     const ids = (JSON.parse((await call('tresor_providers')).content[0].text) as Array<{ id: string }>).map(p => p.id);
-    expect(ids).toEqual(['1password', 'bitwarden', 'bws', 'keepassxc', 'pass', 'gopass', 'lastpass']);
+    expect(ids).toEqual(['1password', 'bitwarden', 'bws', 'keepassxc', 'protonpass', 'dashlane', 'keeper', 'pass', 'gopass', 'lastpass', 'aws-sm', 'azure-kv', 'gcp-sm', 'doppler', 'infisical', 'vault', 'openbao']);
   });
 
   it('returns tool errors instead of crashing', async () => {

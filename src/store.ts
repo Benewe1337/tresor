@@ -3,13 +3,16 @@
  *   - local:  value lives in the OS credential store (macOS Keychain, Windows
  *             Credential Manager, Linux Secret Service) via @napi-rs/keyring, or
  *   - linked: a reference into a password manager (1Password, Bitwarden, …),
- *             resolved on every use through that manager's CLI.
+ *             resolved on every use through that manager's CLI, or
+ *   - dynamic: a generator minting short-lived credentials (AWS SSO, GitHub App,
+ *             OAuth refresh …), cached in memory until shortly before expiry.
  * Only non-secret metadata lives in index.json, so listing never touches a value.
  */
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
 import { createRequire } from 'module';
 import { dirname } from 'path';
+import { internalKeysFor, isBundle, mint, staleAt, validateDynamic, type DynamicConfig, type Minted } from './dynamic.js';
 import { indexPath } from './paths.js';
 import { getProvider, loadProvidersConfig, allProviders, type ProviderContext, type ProviderStatus, type ProvidersConfig } from './providers/index.js';
 
@@ -36,6 +39,8 @@ export interface SecretMeta {
   source?: SecretSource;
   /** Restrictions on how the agent may use this secret (set by the human via `tresor policy`). */
   policy?: SecretPolicy;
+  /** Set for short-lived credentials minted on use (`tresor dynamic`). */
+  dynamic?: DynamicConfig;
   createdAt: string;
   updatedAt: string;
 }
@@ -112,6 +117,8 @@ export interface StoreOptions {
 
 export class SecretStore {
   private readonly indexFile: string;
+  private readonly mintCache = new Map<string, { minted: Minted; staleAt: number; key: string }>();
+  private readonly minting = new Map<string, Promise<Minted>>();
 
   constructor(private readonly backend: SecretBackend, private readonly opts: StoreOptions = {}) {
     this.indexFile = opts.indexFile ?? indexPath();
@@ -142,6 +149,7 @@ export class SecretStore {
       hosts: normalizeHosts(patch.hosts) ?? prev?.hosts,
       source: 'source' in patch ? patch.source : prev?.source,
       policy: 'policy' in patch ? patch.policy : prev?.policy,
+      dynamic: 'dynamic' in patch ? patch.dynamic : prev?.dynamic,
       createdAt: prev?.createdAt ?? now,
       updatedAt: now,
     };
@@ -198,8 +206,9 @@ export class SecretStore {
   set(name: string, value: string, opts: { description?: string; hosts?: string[] } = {}): 'created' | 'updated' {
     validateName(name);
     if (value.length === 0) throw new Error('Refusing to store an empty secret.');
-    const src = this.meta(name)?.source;
-    if (src) throw new Error(`"${name}" is linked to ${src.provider}. Run \`tresor rm ${name}\` first.`);
+    const prev = this.meta(name);
+    if (prev?.source) throw new Error(`"${name}" is linked to ${prev.source.provider}. Run \`tresor rm ${name}\` first.`);
+    if (prev?.dynamic) throw new Error(`"${name}" is a dynamic ${prev.dynamic.type} credential. Run \`tresor rm ${name}\` first.`);
     this.backend.set(name, value);
     return this.upsert(name, opts);
   }
@@ -208,9 +217,45 @@ export class SecretStore {
   link(name: string, provider: string, ref: string, opts: { description?: string; hosts?: string[] } = {}): 'created' | 'updated' {
     validateName(name);
     const prev = this.meta(name);
-    if (prev && !prev.source) throw new Error(`"${name}" is stored locally. Run \`tresor rm ${name}\` before linking it.`);
+    if (prev && !prev.source) throw new Error(`"${name}" is ${prev.dynamic ? 'a dynamic credential' : 'stored locally'}. Run \`tresor rm ${name}\` before linking it.`);
     getProvider(provider, this.providerContext().config).validateRef(ref);
     return this.upsert(name, { ...opts, source: { provider, ref } });
+  }
+
+  /** Human-only (CLI): make `name` a generator of short-lived credentials. */
+  defineDynamic(name: string, config: DynamicConfig, opts: { description?: string; hosts?: string[] } = {}): 'created' | 'updated' {
+    validateName(name);
+    validateDynamic(config);
+    const prev = this.meta(name);
+    if (prev && !prev.dynamic) throw new Error(`"${name}" already exists as a ${prev.source ? 'linked' : 'local'} secret. Run \`tresor rm ${name}\` first.`);
+    this.mintCache.delete(name);
+    return this.upsert(name, { ...opts, dynamic: config });
+  }
+
+  private async minted(name: string, cfg: DynamicConfig): Promise<Minted> {
+    const key = JSON.stringify(cfg);
+    const cached = this.mintCache.get(name);
+    if (cached && cached.key === key && Date.now() < cached.staleAt) return cached.minted;
+    // Single flight: concurrent uses share one mint (important for rotating OAuth tokens).
+    const running = this.minting.get(name);
+    if (running) return running;
+    const ctx = { ...this.providerContext(), name, resolveSecret: (n: string) => this.resolve(n) };
+    const p = mint(cfg, ctx).then(m => {
+      this.mintCache.set(name, { minted: m, staleAt: staleAt(m), key });
+      return m;
+    }).finally(() => this.minting.delete(name));
+    this.minting.set(name, p);
+    return p;
+  }
+
+  /** Env var → value for a bundle secret (e.g. AWS credentials). Never hand the result to a model. */
+  async resolveBundle(name: string): Promise<Record<string, string>> {
+    validateName(name);
+    const meta = this.meta(name);
+    if (!meta?.dynamic || !isBundle(meta.dynamic)) {
+      throw new Error(`"${name}" is not a bundle. Bundles are multi-value dynamic credentials (e.g. aws-sso); map single secrets with env instead.`);
+    }
+    return (await this.minted(name, meta.dynamic)).values;
   }
 
   /** Resolve a value for injection. Never hand the result to a model. */
@@ -218,6 +263,10 @@ export class SecretStore {
     validateName(name);
     const meta = this.meta(name);
     if (!meta) throw new Error(`Unknown secret "${name}". Known: ${this.list().map(s => s.name).join(', ') || '(none)'}`);
+    if (meta.dynamic) {
+      if (isBundle(meta.dynamic)) throw new Error(`"${name}" holds several values (${meta.dynamic.type}); use it as a bundle (tresor_run bundles, or -b ${name} on the command line).`);
+      return (await this.minted(name, meta.dynamic)).values.value;
+    }
     if (meta.source) {
       const ctx = this.providerContext();
       return getProvider(meta.source.provider, ctx.config).resolve(meta.source.ref, ctx);
@@ -239,7 +288,12 @@ export class SecretStore {
     validateName(name);
     const index = this.readIndex();
     const meta = index.secrets[name];
-    if (!meta?.source) this.backend.delete(name);
+    if (meta?.dynamic) {
+      for (const k of internalKeysFor(name, meta.dynamic)) this.backend.delete(INTERNAL_PREFIX + k);
+      this.mintCache.delete(name);
+    } else if (!meta?.source) {
+      this.backend.delete(name);
+    }
     const { [name]: _removed, ...rest } = index.secrets;
     this.writeIndex({ ...index, secrets: rest });
     return meta !== undefined;

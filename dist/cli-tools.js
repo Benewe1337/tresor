@@ -1,4 +1,5 @@
 /** CLI commands for scanning, importing, project profiles, the usage log and policies. */
+import { AGENTS, detectAgents, installAgent, uninstallAgent } from './agents/install.js';
 import { formatAudit, readAudit } from './audit.js';
 import { askYesNo, fail, say, takeFlag, takeList, takeSwitch } from './cli-util.js';
 import { planImport, runImport } from './import.js';
@@ -88,6 +89,27 @@ export async function cmdProfile(args) {
         return say(`✓ trusted ${profile.path}`);
     }
     say(`${profile.path}  ${isTrusted(profile) ? '(trusted)' : '(not trusted yet – tresor profile allow)'}\n${describeProfile(profile) || '(empty)'}`);
+}
+export function cmdInstall(args, uninstall) {
+    const dryRun = takeSwitch(args, '--dry-run');
+    const target = args[0] ?? fail(`usage: tresor ${uninstall ? 'uninstall' : 'install'} <${AGENTS.join('|')}|all> [--dry-run]`);
+    if (target === 'claude') {
+        return say('Claude Code: install the plugin instead – /plugin install tresor --marketplace Benewe1337/tresor');
+    }
+    const agents = target === 'all' ? detectAgents() : [target];
+    if (target !== 'all' && !AGENTS.includes(target))
+        fail(`unknown agent "${target}" (${AGENTS.join(', ')}, all)`);
+    if (agents.length === 0)
+        return say('no supported agent found (looked for Cursor, Codex, Gemini CLI, VS Code)');
+    for (const agent of agents) {
+        const r = (uninstall ? uninstallAgent : installAgent)(agent, { dryRun });
+        say(`${uninstall ? '−' : '+'} ${agent}${dryRun ? ' (dry run)' : ''}`);
+        for (const c of r.changes)
+            if (c.action !== 'unchanged')
+                say(`    ${c.action.padEnd(8)} ${c.file}`);
+        for (const n of r.notes)
+            say(`    → ${n}`);
+    }
 }
 export function cmdLog(args) {
     const secret = takeFlag(args, '--secret')[0] ?? args[0];
