@@ -15,10 +15,6 @@ export const DEFAULT_TIMEOUT_MS = 120_000;
 export const MAX_OUTPUT_CHARS = 40_000;
 const MAX_CAPTURE_BYTES = 10 * 1024 * 1024;
 
-function resolveMany(store: SecretStore, names: string[]): Record<string, string> {
-  return Object.fromEntries(names.map(n => [n, store.resolve(n)]));
-}
-
 export interface RunInput {
   command: string[];
   /** ENV_VAR → secret name */
@@ -39,7 +35,7 @@ export async function runWithSecrets(store: SecretStore, input: RunInput): Promi
   if (input.command.length === 0) throw new Error('command must not be empty');
   const envMap = input.env ?? {};
   const argNames = placeholderNames(...input.command);
-  const values = resolveMany(store, [...new Set([...Object.values(envMap), ...argNames])]);
+  const values = await store.resolveMany([...Object.values(envMap), ...argNames]);
   const redactor = new Redactor(values);
 
   const childEnv: NodeJS.ProcessEnv = { ...process.env };
@@ -104,7 +100,7 @@ export async function httpWithSecrets(store: SecretStore, input: HttpInput): Pro
   const headerEntries = Object.entries(input.headers ?? {});
   const names = placeholderNames(input.url, input.body, ...headerEntries.map(([, v]) => v));
   if (names.length === 0) throw new Error('No {{secret:NAME}} placeholder found in url, headers or body.');
-  const values = resolveMany(store, names);
+  const values = await store.resolveMany(names);
   const redactor = new Redactor(values);
 
   const url = new URL(fill(input.url, values));
@@ -138,10 +134,10 @@ function registerWrittenFile(path: string): void {
   if (!known.includes(path)) appendFileSync(registry, `${path}\n`, { mode: 0o600 });
 }
 
-export function writeFileWithSecrets(store: SecretStore, path: string, content: string): { path: string; secrets: string[] } {
+export async function writeFileWithSecrets(store: SecretStore, path: string, content: string): Promise<{ path: string; secrets: string[] }> {
   const names = placeholderNames(content);
   if (names.length === 0) throw new Error('No {{secret:NAME}} placeholder found in content.');
-  const values = resolveMany(store, names);
+  const values = await store.resolveMany(names);
   const abs = resolve(path);
   mkdirSync(dirname(abs), { recursive: true });
   writeFileSync(abs, fill(content, values), { mode: 0o600 });

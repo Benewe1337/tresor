@@ -1,0 +1,121 @@
+/**
+ * Bitwarden / Vaultwarden via `bw`, and Bitwarden Secrets Manager via `bws`.
+ *
+ * bw needs an unlocked session. `tresor unlock bitwarden` runs `bw unlock --raw`
+ * in the user's terminal and keeps the session key in the OS keychain, so the MCP
+ * server (which has no terminal) can use it until `tresor lock bitwarden`.
+ */
+
+import spawn from 'cross-spawn';
+import { exec, onPath } from '../platform/exec.js';
+import { notInstalled, pickJson, requireNonEmpty, runCli, splitField } from './common.js';
+import { ProviderError, type Provider, type ProviderContext } from './types.js';
+
+export const BW_SESSION_KEY = 'bitwarden.session';
+export const BWS_TOKEN_KEY = 'bws.token';
+
+interface BwItem {
+  id: string;
+  name: string;
+  notes?: string | null;
+  login?: { username?: string | null; password?: string | null; totp?: string | null; uris?: Array<{ uri?: string | null }> | null };
+  fields?: Array<{ name?: string | null; value?: string | null }> | null;
+}
+
+function bwEnv(ctx: ProviderContext): NodeJS.ProcessEnv {
+  const session = ctx.internal.get(BW_SESSION_KEY) ?? ctx.env.BW_SESSION;
+  return session ? { ...ctx.env, BW_SESSION: session } : { ...ctx.env };
+}
+
+function pickField(item: BwItem, field: string): string | null | undefined {
+  switch (field.toLowerCase()) {
+    case 'password': return item.login?.password;
+    case 'username': return item.login?.username;
+    case 'notes': return item.notes;
+    case 'uri': case 'url': return item.login?.uris?.[0]?.uri;
+    default: return item.fields?.find(f => f.name === field)?.value;
+  }
+}
+
+export const bitwarden: Provider = {
+  id: 'bitwarden',
+  label: 'Bitwarden',
+  refHelp: '<Eintrag-ID oder exakter Name>[#password|username|notes|totp|uri|<eigenes Feld>]  (Standard: password)',
+  validateRef(ref) {
+    if (!splitField(ref).path.trim()) throw new ProviderError(`Bitwarden-Referenz: ${this.refHelp}`);
+  },
+  async resolve(ref, ctx) {
+    this.validateRef(ref);
+    const { path, field = 'password' } = splitField(ref);
+    const env = bwEnv(ctx);
+    if (!env.BW_SESSION) throw new ProviderError('Bitwarden ist gesperrt. Im Terminal: tresor unlock bitwarden');
+    const item = JSON.parse(await runCli(this.label, 'bw', ['get', 'item', path, '--nointeraction'], { env })) as BwItem;
+    // bw get does a search; insist on an exact hit so a substring can't pick another item.
+    if (item.id !== path && item.name !== path) {
+      throw new ProviderError(`Bitwarden: kein exakter Treffer für "${path}" (gefunden: "${item.name}"). Nutze die Eintrag-ID.`);
+    }
+    if (field.toLowerCase() === 'totp') {
+      return requireNonEmpty(this.label, ref, await runCli(this.label, 'bw', ['get', 'totp', item.id, '--nointeraction'], { env }));
+    }
+    const value = pickField(item, field);
+    if (value === undefined) throw new ProviderError(`Bitwarden: Feld "${field}" gibt es in "${item.name}" nicht.`);
+    return requireNonEmpty(this.label, ref, value ?? '');
+  },
+  async status(ctx) {
+    if (!onPath('bw', ctx.env)) return notInstalled('bw');
+    const r = await exec('bw', ['status', '--nointeraction'], { env: bwEnv(ctx), timeoutMs: 20_000 });
+    let state = 'unbekannt';
+    try { state = String((JSON.parse(r.stdout) as { status?: string }).status ?? state); } catch { /* keep default */ }
+    const ready = state === 'unlocked';
+    const hint = state === 'unauthenticated' ? ' – erst `bw login`, dann tresor unlock bitwarden'
+      : state === 'locked' ? ' – tresor unlock bitwarden' : '';
+    return { installed: true, ready, detail: `${state}${hint}` };
+  },
+};
+
+/** Interactive: `bw unlock --raw` in the user's terminal, session key → OS keychain. */
+export function bitwardenUnlock(ctx: ProviderContext): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('bw', ['unlock', '--raw'], { env: ctx.env, stdio: ['inherit', 'pipe', 'inherit'] });
+    let out = '';
+    child.stdout?.on('data', (d: Buffer) => { out += d.toString('utf-8'); });
+    child.on('error', reject);
+    child.on('close', code => {
+      const session = out.trim();
+      if (code !== 0 || !session) return reject(new ProviderError('bw unlock fehlgeschlagen.'));
+      ctx.internal.set(BW_SESSION_KEY, session);
+      resolve();
+    });
+  });
+}
+
+export async function bitwardenLock(ctx: ProviderContext): Promise<void> {
+  ctx.internal.delete(BW_SESSION_KEY);
+  if (onPath('bw', ctx.env)) await exec('bw', ['lock', '--nointeraction'], { env: ctx.env, timeoutMs: 20_000 });
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export const bitwardenSecretsManager: Provider = {
+  id: 'bws',
+  label: 'Bitwarden Secrets Manager',
+  refHelp: '<Secret-ID (UUID)>',
+  validateRef(ref) {
+    if (!UUID.test(ref)) throw new ProviderError(`Bitwarden-Secrets-Manager-Referenz: ${this.refHelp}`);
+  },
+  async resolve(ref, ctx) {
+    this.validateRef(ref);
+    const token = ctx.internal.get(BWS_TOKEN_KEY) ?? ctx.env.BWS_ACCESS_TOKEN;
+    if (!token) throw new ProviderError('Kein Access-Token. Im Terminal: tresor setup bws');
+    const json = JSON.parse(await runCli(this.label, 'bws', ['secret', 'get', ref, '--output', 'json'], {
+      env: { ...ctx.env, BWS_ACCESS_TOKEN: token },
+    }));
+    const value = pickJson(json, 'value');
+    return requireNonEmpty(this.label, ref, typeof value === 'string' ? value : '');
+  },
+  async status(ctx) {
+    if (!onPath('bws', ctx.env)) return notInstalled('bws');
+    const hasToken = Boolean(ctx.internal.get(BWS_TOKEN_KEY) ?? ctx.env.BWS_ACCESS_TOKEN);
+    return { installed: true, ready: hasToken, detail: hasToken ? 'Access-Token vorhanden' : 'kein Access-Token – tresor setup bws' };
+  },
+};

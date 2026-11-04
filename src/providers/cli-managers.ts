@@ -1,0 +1,87 @@
+/** Password managers whose CLI just prints a value: pass, gopass, LastPass, and user-defined ones. */
+
+import { onPath } from '../platform/exec.js';
+import { notInstalled, pickJson, requireNonEmpty, runCli, splitField } from './common.js';
+import { ProviderError, type CustomProviderConfig, type Provider, type ProviderContext } from './types.js';
+
+function nonEmptyPath(label: string, help: string) {
+  return (ref: string) => {
+    if (!splitField(ref).path.trim()) throw new ProviderError(`${label}-Referenz: ${help}`);
+  };
+}
+
+const installedOnly = (bin: string) => async (ctx: ProviderContext) =>
+  onPath(bin, ctx.env) ? { installed: true, ready: true, detail: 'installiert' } : notInstalled(bin);
+
+export const pass: Provider = {
+  id: 'pass',
+  label: 'pass',
+  refHelp: '<pfad/im/store>[#feld]  (ohne #: erste Zeile; mit #user: Zeile "user: …")',
+  validateRef(ref) { nonEmptyPath(this.label, this.refHelp)(ref); },
+  async resolve(ref, ctx) {
+    this.validateRef(ref);
+    const { path, field } = splitField(ref);
+    const lines = (await runCli(this.label, 'pass', ['show', path], { env: ctx.env })).split(/\r?\n/);
+    if (!field) return requireNonEmpty(this.label, ref, lines[0] ?? '');
+    const prefix = `${field.toLowerCase()}:`;
+    const line = lines.slice(1).find(l => l.toLowerCase().startsWith(prefix));
+    if (line === undefined) throw new ProviderError(`pass: Feld "${field}" nicht in "${path}".`);
+    return requireNonEmpty(this.label, ref, line.slice(prefix.length).trim());
+  },
+  status: installedOnly('pass'),
+};
+
+export const gopass: Provider = {
+  id: 'gopass',
+  label: 'gopass',
+  refHelp: '<pfad/im/store>[#key]  (ohne #: Passwort)',
+  validateRef(ref) { nonEmptyPath(this.label, this.refHelp)(ref); },
+  async resolve(ref, ctx) {
+    this.validateRef(ref);
+    const { path, field } = splitField(ref);
+    const args = field ? ['show', path, field] : ['show', '-o', path];
+    return requireNonEmpty(this.label, ref, await runCli(this.label, 'gopass', args, { env: ctx.env }));
+  },
+  status: installedOnly('gopass'),
+};
+
+const LPASS_FLAGS: Record<string, string> = { password: '--password', username: '--username', notes: '--notes', url: '--url' };
+
+export const lastpass: Provider = {
+  id: 'lastpass',
+  label: 'LastPass',
+  refHelp: '<Name oder ID>[#password|username|notes|url|<eigenes Feld>]',
+  validateRef(ref) { nonEmptyPath(this.label, this.refHelp)(ref); },
+  async resolve(ref, ctx) {
+    this.validateRef(ref);
+    const { path, field = 'password' } = splitField(ref);
+    const flag = LPASS_FLAGS[field.toLowerCase()] ?? `--field=${field}`;
+    return requireNonEmpty(this.label, ref, await runCli(this.label, 'lpass', ['show', flag, path], { env: ctx.env }));
+  },
+  status: installedOnly('lpass'),
+};
+
+/** User-defined provider from providers.json, e.g. Doppler, Infisical, HashiCorp Vault, Dashlane. */
+export function customProvider(id: string, cfg: CustomProviderConfig): Provider {
+  if (!Array.isArray(cfg.command) || cfg.command.length === 0 || !cfg.command.some(a => a.includes('{ref}'))) {
+    throw new ProviderError(`Eigener Provider "${id}": "command" braucht ein argv mit {ref}.`);
+  }
+  const [bin, ...args] = cfg.command;
+  const label = cfg.label ?? id;
+  return {
+    id,
+    label,
+    refHelp: `Wird in ${JSON.stringify(cfg.command)} für {ref} eingesetzt`,
+    validateRef(ref) {
+      if (!ref.trim()) throw new ProviderError(`${label}: leere Referenz.`);
+    },
+    async resolve(ref, ctx) {
+      this.validateRef(ref);
+      const out = await runCli(label, bin, args.map(a => a.split('{ref}').join(ref)), { env: ctx.env });
+      if (!cfg.jsonPath) return requireNonEmpty(label, ref, out);
+      const v = pickJson(JSON.parse(out), cfg.jsonPath);
+      return requireNonEmpty(label, ref, typeof v === 'string' ? v : '');
+    },
+    status: installedOnly(bin),
+  };
+}

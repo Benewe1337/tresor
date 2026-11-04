@@ -25,17 +25,18 @@ describe('SecretStore', () => {
     expect(readFileSync(join(process.env.TRESOR_HOME!, 'index.json'), 'utf-8')).not.toContain(TOKEN);
   });
 
-  it('reports created vs updated and keeps createdAt', () => {
+  it('reports created vs updated and keeps createdAt', async () => {
     const created = store.meta('openai')!.createdAt;
     expect(store.set('openai', 'new-value-123')).toBe('updated');
     expect(store.meta('openai')!.createdAt).toBe(created);
-    expect(store.resolve('openai')).toBe('new-value-123');
+    expect(await store.resolve('openai')).toBe('new-value-123');
   });
 
-  it('rejects invalid names, empty values and unknown secrets', () => {
+  it('rejects invalid names, empty values and unknown secrets', async () => {
     expect(() => store.set('bad name', 'x')).toThrow(/Invalid secret name/);
+    expect(() => store.set('__internal.x', 'x')).toThrow(/Invalid secret name/);
     expect(() => store.set('ok', '')).toThrow(/empty/);
-    expect(() => store.resolve('nope')).toThrow(/Unknown secret "nope"/);
+    await expect(store.resolve('nope')).rejects.toThrow(/Unknown secret "nope"/);
   });
 
   it('removes from index and backend', () => {
@@ -78,25 +79,25 @@ describe('template', () => {
 
 describe('runWithSecrets', () => {
   it('injects env vars and redacts them from output', async () => {
-    const r = await runWithSecrets(store, { command: ['sh', '-c', 'echo "key=$KEY"; echo "$KEY" >&2'], env: { KEY: 'openai' } });
+    const r = await runWithSecrets(store, { command: [process.execPath, '-e', 'console.log("key=" + process.env.KEY); console.error(process.env.KEY)'], env: { KEY: 'openai' } });
     expect(r.exitCode).toBe(0);
     expect(r.stdout.trim()).toBe('key=[tresor:openai]');
     expect(r.stderr).not.toContain(TOKEN);
   });
 
   it('substitutes arg placeholders and redacts base64 echoes', async () => {
-    const r = await runWithSecrets(store, { command: ['sh', '-c', 'printf %s "{{secret:openai}}" | base64'] });
+    const r = await runWithSecrets(store, { command: [process.execPath, '-e', 'console.log(Buffer.from(process.argv[1]).toString("base64"))', '{{secret:openai}}'] });
     expect(r.stdout).toContain('[tresor:openai]');
     expect(r.stdout).not.toContain(Buffer.from(TOKEN).toString('base64'));
   });
 
   it('kills on timeout', async () => {
-    const r = await runWithSecrets(store, { command: ['sleep', '5'], timeoutMs: 200 });
+    const r = await runWithSecrets(store, { command: [process.execPath, '-e', 'setTimeout(() => {}, 5000)'], timeoutMs: 200 });
     expect(r.timedOut).toBe(true);
   });
 
   it('fails loudly on unknown secrets', async () => {
-    await expect(runWithSecrets(store, { command: ['true'], env: { X: 'missing' } })).rejects.toThrow(/Unknown secret/);
+    await expect(runWithSecrets(store, { command: [process.execPath, '-v'], env: { X: 'missing' } })).rejects.toThrow(/Unknown secret/);
   });
 });
 
@@ -137,12 +138,12 @@ describe('httpWithSecrets', () => {
 });
 
 describe('writeFileWithSecrets', () => {
-  it('writes mode 600 and registers the path for the guard', () => {
+  it('writes mode 600 and registers the path for the guard', async () => {
     const path = join(process.env.TRESOR_HOME!, 'proj', '.env');
-    const r = writeFileWithSecrets(store, path, 'OPENAI_API_KEY={{secret:openai}}\n');
+    const r = await writeFileWithSecrets(store, path, 'OPENAI_API_KEY={{secret:openai}}\n');
     expect(r.secrets).toEqual(['openai']);
     expect(readFileSync(path, 'utf-8')).toBe(`OPENAI_API_KEY=${TOKEN}\n`);
-    expect(statSync(path).mode & 0o777).toBe(0o600);
+    if (process.platform !== 'win32') expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(readFileSync(join(process.env.TRESOR_HOME!, 'written-files.txt'), 'utf-8')).toContain(path);
   });
 });
