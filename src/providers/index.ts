@@ -25,7 +25,7 @@ export function saveProvidersConfig(config: ProvidersConfig, path = providersCon
 export function allProviders(config: ProvidersConfig): Provider[] {
   const builtinIds = new Set(BUILTIN_PROVIDERS.map(p => p.id));
   const custom = Object.entries(config.custom ?? {}).map(([id, cfg]) => {
-    if (builtinIds.has(id) || id === 'local') throw new ProviderError(`Eigener Provider "${id}" kollidiert mit einem eingebauten.`);
+    if (builtinIds.has(id) || id === 'local') throw new ProviderError(`Custom provider "${id}" collides with a built-in provider.`);
     return customProvider(id, cfg);
   });
   return [...BUILTIN_PROVIDERS, ...custom];
@@ -33,6 +33,6 @@ export function allProviders(config: ProvidersConfig): Provider[] {
 
 export function getProvider(id: string, config: ProvidersConfig): Provider {
   const p = allProviders(config).find(x => x.id === id);
-  if (!p) throw new ProviderError(`Unbekannter Provider "${id}". Verfügbar: ${allProviders(config).map(x => x.id).join(', ')}`);
+  if (!p) throw new ProviderError(`Unknown provider "${id}". Available: ${allProviders(config).map(x => x.id).join(', ')}`);
   return p;
 }

@@ -66,8 +66,8 @@ describe('MCP tools', () => {
     let asked = '';
     const { call } = await connect(linked, { confirm: async text => { asked = text; return 'yes'; } });
     const r = await call('tresor_link', { name: 'gh', provider: 'pass', ref: 'api/gh', hosts: ['api.github.com'] });
-    expect(asked).toMatch(/„api\/gh" aus pass als Secret „gh"/);
-    expect(r.content[0].text).toMatch(/Test-Abruf ok/);
+    expect(asked).toMatch(/"api\/gh" from pass as secret "gh"/);
+    expect(r.content[0].text).toMatch(/Test fetch ok/);
     expect(r.content[0].text).not.toContain(TOKEN);
     expect(linked.meta('gh')).toMatchObject({ source: { provider: 'pass', ref: 'api/gh' }, hosts: ['api.github.com'] });
   });

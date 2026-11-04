@@ -14,17 +14,17 @@ export const KEEPASS_PASSWORD_KEY = 'keepassxc.password';
 export const keepassxc: Provider = {
   id: 'keepassxc',
   label: 'KeePassXC',
-  refHelp: '<Gruppe/Eintrag>[#Attribut]  (Standard: Password; z.B. #UserName, #totp, eigene Attribute)',
+  refHelp: '<group/entry>[#attribute]  (default: Password; e.g. #UserName, #totp, custom attributes)',
   validateRef(ref) {
-    if (!splitField(ref).path.trim()) throw new ProviderError(`KeePassXC-Referenz: ${this.refHelp}`);
+    if (!splitField(ref).path.trim()) throw new ProviderError(`KeePassXC reference: ${this.refHelp}`);
   },
   async resolve(ref, ctx) {
     this.validateRef(ref);
     const cfg = ctx.config.keepassxc;
-    if (!cfg) throw new ProviderError('KeePassXC ist nicht eingerichtet. Im Terminal: tresor setup keepassxc --db <pfad.kdbx>');
+    if (!cfg) throw new ProviderError('KeePassXC is not set up. In your terminal: tresor setup keepassxc --db <file.kdbx>');
     const { path, field = 'Password' } = splitField(ref);
     const password = cfg.noPassword ? null : ctx.internal.get(KEEPASS_PASSWORD_KEY);
-    if (!cfg.noPassword && password === null) throw new ProviderError('KeePassXC-Passwort fehlt. Im Terminal: tresor setup keepassxc --db <pfad>');
+    if (!cfg.noPassword && password === null) throw new ProviderError('KeePassXC password missing. In your terminal: tresor setup keepassxc --db <file.kdbx>');
     const args = [
       'show', '-q', '-s',
       ...(field.toLowerCase() === 'totp' ? ['--totp'] : ['-a', field]),
@@ -41,9 +41,9 @@ export const keepassxc: Provider = {
   async status(ctx) {
     if (!onPath('keepassxc-cli', ctx.env)) return notInstalled('keepassxc-cli');
     const cfg = ctx.config.keepassxc;
-    if (!cfg) return { installed: true, ready: false, detail: 'nicht eingerichtet – tresor setup keepassxc --db <pfad>' };
-    if (!existsSync(cfg.database)) return { installed: true, ready: false, detail: `Datenbank fehlt: ${cfg.database}` };
+    if (!cfg) return { installed: true, ready: false, detail: 'not set up – run tresor setup keepassxc --db <file.kdbx>' };
+    if (!existsSync(cfg.database)) return { installed: true, ready: false, detail: `database missing: ${cfg.database}` };
     const hasPw = cfg.noPassword || ctx.internal.get(KEEPASS_PASSWORD_KEY) !== null;
-    return { installed: true, ready: hasPw, detail: hasPw ? cfg.database : 'Passwort fehlt – tresor setup keepassxc' };
+    return { installed: true, ready: hasPw, detail: hasPw ? cfg.database : 'password missing – run tresor setup keepassxc' };
   },
 };

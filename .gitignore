@@ -1,4 +1,5 @@
 node_modules/
-dist/
 .ecc/
-hooks/
+# dist/ is committed: the Claude Code plugin runs it without a build step.
+# Local bridge script for an old hook path (not part of the plugin).
+hooks/tresor-guard.sh

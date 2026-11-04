@@ -24,6 +24,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: committed dist/ is up to date
+        if: runner.os == 'Linux'
+        run: git diff --exit-code -- dist || (echo "::error::dist/ is stale – run npm run build and commit" && exit 1)
       - run: npm test
 
   integration-linux:

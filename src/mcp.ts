@@ -29,11 +29,17 @@ async function guarded<T>(fn: () => Promise<T> | T) {
   }
 }
 
-const PLACEHOLDER_HINT = 'Reference secrets as {{secret:NAME}}.';
+const SERVER_INSTRUCTIONS = `tresor holds the user's API tokens. You can USE them but never SEE them.
+- Need a token? tresor_list first. Missing → tresor_request (user types it into a native dialog) or, if it lives in a password manager, tresor_providers + tresor_link (user confirms in a dialog). Never ask the user to paste a token into the chat.
+- Use tokens only through tresor_run (env vars), tresor_http ({{secret:NAME}} placeholders) or tresor_write_file (.env etc.). Output comes back with values replaced by [tresor:NAME].
+- Never try to read values another way (keychain CLIs, password-manager CLIs, printing env vars, reading files tresor wrote); a guard hook blocks this and it defeats the purpose.
+- Errors like "Bitwarden is locked" or "not set up" need the user: tell them the exact command to run in their own terminal.`;
+
+const PLACEHOLDER_HINT ='Reference secrets as {{secret:NAME}}.';
 const HOSTS = z.array(z.string()).optional().describe('Restrict http injection to these hostnames, e.g. ["api.openai.com"]');
 
 export function createServer(store: SecretStore, dialogs: Dialogs = { promptSecret, confirm }): McpServer {
-  const server = new McpServer({ name: 'tresor', version: '0.2.0' });
+  const server = new McpServer({ name: 'tresor', version: '0.3.0' }, { instructions: SERVER_INSTRUCTIONS });
 
   server.registerTool('tresor_list', {
     description: 'List secrets: names, descriptions, allowed hosts, and for linked ones the password manager + reference. Never returns values.',
@@ -74,17 +80,17 @@ export function createServer(store: SecretStore, dialogs: Dialogs = { promptSecr
     const p = getProvider(provider, store.providerContext().config);
     p.validateRef(ref);
     const answer = await dialogs.confirm(
-      `Claude möchte „${ref}" aus ${p.label} als Secret „${name}" verwenden.\n\n`
-      + 'Claude kann den Wert dann in Befehle und Requests einsetzen, sieht ihn aber nicht.'
-      + `${hosts?.length ? `\nNur an: ${hosts.join(', ')}` : ''}\n\nErlauben?`,
+      `Claude wants to use "${ref}" from ${p.label} as secret "${name}".\n\n`
+      + 'Claude can then inject the value into commands and requests, but never sees it.'
+      + `${hosts?.length ? `\nOnly to: ${hosts.join(', ')}` : ''}\n\nAllow?`,
     );
     if (answer !== 'yes') return `Not linked (${answer === 'timeout' ? 'dialog timed out' : 'user declined'}).`;
     const action = store.link(name, provider, ref, { description, hosts });
     try {
       const value = await store.resolve(name);
-      return `Secret "${name}" ${action} → ${p.label}. Test-Abruf ok (${value.length} Zeichen).`;
+      return `Secret "${name}" ${action} → ${p.label}. Test fetch ok (${value.length} chars).`;
     } catch (e) {
-      return `Secret "${name}" ${action} → ${p.label}, aber der Test-Abruf schlug fehl: ${e instanceof Error ? e.message : String(e)}`;
+      return `Secret "${name}" ${action} → ${p.label}, but the test fetch failed: ${e instanceof Error ? e.message : String(e)}`;
     }
   }));
 

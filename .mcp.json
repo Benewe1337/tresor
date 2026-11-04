@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "tresor": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/plugin/launch.mjs", "server"]
+    }
+  }
+}

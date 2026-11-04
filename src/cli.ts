@@ -16,30 +16,30 @@ import { KEEPASS_PASSWORD_KEY } from './providers/keepassxc.js';
 import { KeychainBackend, SecretStore } from './store.js';
 import { fill, placeholderNames } from './template.js';
 
-const USAGE = `tresor — API-Tokens lokal im System-Schlüsselbund oder aus deinem Passwort-Manager
+const USAGE = `tresor — API tokens from your OS keychain or password manager, for Claude Code
 
-Lokal speichern (macOS-Schlüsselbund / Windows-Anmeldeinformationen / Linux Secret Service):
-  tresor set <name> [--clip] [-d "Beschreibung"] [--host api.example.com ...]
-        Wert verdeckt eingeben (oder per Pipe); --clip nimmt die Zwischenablage und leert sie
+Store locally (macOS Keychain / Windows Credential Manager / Linux Secret Service):
+  tresor set <name> [--clip] [-d "description"] [--host api.example.com ...]
+        type/paste the value hidden (or pipe it); --clip takes the clipboard and clears it
 
-Aus einem Passwort-Manager verknüpfen (es wird nichts kopiert):
-  tresor link <name> <provider> <referenz> [-d ...] [--host ...]
-        z.B. tresor link openai 1password "op://Private/OpenAI/credential"
+Link from a password manager (nothing is copied):
+  tresor link <name> <provider> <reference> [-d ...] [--host ...]
+        e.g. tresor link openai 1password "op://Private/OpenAI/credential"
              tresor link github bitwarden "GitHub PAT#token"
-  tresor providers                 installierte Manager, Status und Referenz-Syntax
-  tresor unlock bitwarden          bw entsperren, Session im Schlüsselbund ablegen
-  tresor lock bitwarden            Session löschen, bw sperren
-  tresor setup keepassxc --db <datei.kdbx> [--keyfile <datei>] [--no-password]
-  tresor setup bws                 Access-Token für Bitwarden Secrets Manager
+  tresor providers                 installed managers, status and reference syntax
+  tresor unlock bitwarden          unlock bw, keep the session in the keychain
+  tresor lock bitwarden            drop the session, lock bw
+  tresor setup keepassxc --db <file.kdbx> [--keyfile <file>] [--no-password]
+  tresor setup bws                 access token for Bitwarden Secrets Manager
 
-Allgemein:
-  tresor list                      Namen + Metadaten (nie Werte)
-  tresor rm <name>                 lokales Secret löschen bzw. Verknüpfung entfernen
+General:
+  tresor list                      names + metadata (never values)
+  tresor rm <name>                 delete a local secret / remove a link
   tresor run -e VAR=name [...] -- <cmd> [args]
-        Befehl mit Secrets als Env-Variablen starten (stdio durchgereicht, z.B. für MCP-Server).
-        In Args: {{secret:name}}
+        start a command with secrets as env vars (stdio passed through, e.g. for MCP servers).
+        In args: {{secret:name}}
 
-Claude nutzt den MCP-Server (tresor-mcp) und bekommt nie Werte zu sehen.`;
+Claude uses the MCP server (tresor-mcp) and never sees values.`;
 
 function fail(msg: string): never {
   process.stderr.write(`tresor: ${msg}\n`);
@@ -49,7 +49,7 @@ function fail(msg: string): never {
 function takeFlag(args: string[], flag: string): string[] {
   const values: string[] = [];
   for (let i = args.indexOf(flag); i !== -1; i = args.indexOf(flag)) {
-    if (i + 1 >= args.length) fail(`${flag} braucht einen Wert`);
+    if (i + 1 >= args.length) fail(`${flag} needs a value`);
     values.push(args[i + 1]);
     args.splice(i, 2);
   }
@@ -87,32 +87,32 @@ async function cmdSet(store: SecretStore, args: string[]) {
   const hosts = takeFlag(args, '--host');
   const clip = takeSwitch(args, '--clip');
   const name = args[0] ?? fail('usage: tresor set <name>');
-  const value = clip ? await takeClipboard() : await readHidden(`Wert für "${name}": `);
-  if (!value) fail('leerer Wert, nichts gespeichert');
+  const value = clip ? await takeClipboard() : await readHidden(`Value for "${name}": `);
+  if (!value) fail('empty value, nothing stored');
   const action = store.set(name, value, { description, hosts });
-  say(`✓ ${name} ${action === 'created' ? 'gespeichert' : 'aktualisiert'} (${value.length} Zeichen)${clip ? ', Zwischenablage geleert' : ''}`);
+  say(`✓ ${name} ${action === 'created' ? 'stored' : 'updated'} (${value.length} chars)${clip ? ', clipboard cleared' : ''}`);
 }
 
 async function cmdLink(store: SecretStore, args: string[]) {
   const description = takeFlag(args, '-d')[0];
   const hosts = takeFlag(args, '--host');
   const [name, provider, ref] = args;
-  if (!name || !provider || !ref) fail('usage: tresor link <name> <provider> <referenz>');
+  if (!name || !provider || !ref) fail('usage: tresor link <name> <provider> <reference>');
   const action = store.link(name, provider, ref, { description, hosts });
   const label = getProvider(provider, store.providerContext().config).label;
   try {
     const value = await store.resolve(name);
-    say(`✓ ${name} ${action === 'created' ? 'verknüpft' : 'aktualisiert'} → ${label} (Test-Abruf ok, ${value.length} Zeichen)`);
+    say(`✓ ${name} ${action === 'created' ? 'linked' : 'updated'} → ${label} (test fetch ok, ${value.length} chars)`);
   } catch (e) {
-    say(`! ${name} verknüpft → ${label}, aber Test-Abruf fehlgeschlagen: ${e instanceof Error ? e.message : e}`);
+    say(`! ${name} linked → ${label}, but the test fetch failed: ${e instanceof Error ? e.message : e}`);
   }
 }
 
 function cmdList(store: SecretStore) {
   const items = store.list();
-  if (items.length === 0) return say('(keine Secrets)');
+  if (items.length === 0) return say('(no secrets)');
   for (const s of items) {
-    const where = s.source ? `[${s.source.provider}] ${s.source.ref}` : '[lokal]';
+    const where = s.source ? `[${s.source.provider}] ${s.source.ref}` : '[local]';
     const hosts = s.hosts ? `  → ${s.hosts.join(', ')}` : '';
     say(`${s.name.padEnd(22)} ${s.updatedAt.slice(0, 10)}  ${where}${s.description ? `  – ${s.description}` : ''}${hosts}`);
   }
@@ -122,7 +122,7 @@ async function cmdProviders(store: SecretStore) {
   for (const p of await store.providerStatuses()) {
     const mark = p.ready ? '✓' : p.installed ? '…' : '–';
     say(`${mark} ${p.id.padEnd(10)} ${p.label.padEnd(26)} ${p.detail}`);
-    if (p.installed) say(`  ${''.padEnd(10)} Referenz: ${p.refHelp}`);
+    if (p.installed) say(`  ${''.padEnd(10)} reference: ${p.refHelp}`);
   }
 }
 
@@ -130,27 +130,27 @@ async function cmdSetup(store: SecretStore, args: string[]) {
   const what = args.shift();
   const ctx = store.providerContext();
   if (what === 'bws') {
-    const token = await readHidden('BWS Access-Token: ');
-    if (!token) fail('leer, nichts gespeichert');
+    const token = await readHidden('BWS access token: ');
+    if (!token) fail('empty, nothing stored');
     ctx.internal.set(BWS_TOKEN_KEY, token);
-    return say('✓ Access-Token im Schlüsselbund gespeichert');
+    return say('✓ access token stored in the keychain');
   }
   if (what === 'keepassxc') {
-    const db = takeFlag(args, '--db')[0] ?? fail('usage: tresor setup keepassxc --db <datei.kdbx>');
+    const db = takeFlag(args, '--db')[0] ?? fail('usage: tresor setup keepassxc --db <file.kdbx>');
     const keyFile = takeFlag(args, '--keyfile')[0];
     const noPassword = takeSwitch(args, '--no-password');
     const database = resolvePath(db);
-    if (!existsSync(database)) fail(`Datenbank nicht gefunden: ${database}`);
-    const password = noPassword ? null : await readHidden('KeePassXC-Datenbankpasswort: ');
+    if (!existsSync(database)) fail(`database not found: ${database}`);
+    const password = noPassword ? null : await readHidden('KeePassXC database password: ');
     const check = await exec('keepassxc-cli', ['ls', '-q', ...(keyFile ? ['-k', resolvePath(keyFile)] : []), ...(noPassword ? ['--no-password'] : []), database], {
       input: password === null ? undefined : `${password}\n`,
-    }).catch(e => fail(`keepassxc-cli nicht ausführbar: ${e.message}`));
-    if (check.code !== 0) fail(`Entsperren fehlgeschlagen: ${check.stderr.trim()}`);
+    }).catch(e => fail(`cannot run keepassxc-cli: ${e.message}`));
+    if (check.code !== 0) fail(`unlock failed: ${check.stderr.trim()}`);
     if (password !== null) ctx.internal.set(KEEPASS_PASSWORD_KEY, password);
     saveProvidersConfig({ ...loadProvidersConfig(), keepassxc: { database, keyFile: keyFile && resolvePath(keyFile), noPassword: noPassword || undefined } });
-    return say(`✓ KeePassXC eingerichtet: ${database}`);
+    return say(`✓ KeePassXC set up: ${database}`);
   }
-  fail('usage: tresor setup keepassxc --db <datei> | tresor setup bws');
+  fail('usage: tresor setup keepassxc --db <file.kdbx> | tresor setup bws');
 }
 
 async function cmdRun(store: SecretStore, args: string[]) {
@@ -188,18 +188,18 @@ async function main() {
     case 'unlock':
       if (args[0] !== 'bitwarden') fail('usage: tresor unlock bitwarden');
       await bitwardenUnlock(store.providerContext());
-      return say('✓ Bitwarden entsperrt, Session im Schlüsselbund');
+      return say('✓ Bitwarden unlocked, session kept in the keychain');
     case 'lock':
       if (args[0] !== 'bitwarden') fail('usage: tresor lock bitwarden');
       await bitwardenLock(store.providerContext());
-      return say('✓ Bitwarden gesperrt, Session gelöscht');
+      return say('✓ Bitwarden locked, session removed');
     case 'rm': case 'delete': {
       const name = args[0] ?? fail('usage: tresor rm <name>');
-      return say(store.remove(name) ? `✓ ${name} entfernt` : `${name} war nicht vorhanden`);
+      return say(store.remove(name) ? `✓ ${name} removed` : `${name} did not exist`);
     }
     case 'run': return cmdRun(store, args);
     case undefined: case 'help': case '-h': case '--help': return say(USAGE);
-    default: fail(`unbekannter Befehl "${cmd}"\n\n${USAGE}`);
+    default: fail(`unknown command "${cmd}"\n\n${USAGE}`);
   }
 }
 

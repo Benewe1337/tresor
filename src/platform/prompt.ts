@@ -36,8 +36,8 @@ const OSA_SECRET = `
 on run argv
   try
     set r to display dialog (item 1 of argv) default answer "" with hidden answer ¬
-      with title "tresor" with icon caution buttons {"Abbrechen", "Speichern"} ¬
-      default button "Speichern" cancel button "Abbrechen" giving up after ${DIALOG_TIMEOUT_S}
+      with title "tresor" with icon caution buttons {"Cancel", "Save"} ¬
+      default button "Save" cancel button "Cancel" giving up after ${DIALOG_TIMEOUT_S}
   on error number -128
     return "CANCEL:"
   end try
@@ -49,7 +49,7 @@ const OSA_CONFIRM = `
 on run argv
   try
     set r to display dialog (item 1 of argv) with title "tresor" with icon caution ¬
-      buttons {"Ablehnen", "Erlauben"} default button "Ablehnen" cancel button "Ablehnen" ¬
+      buttons {"Deny", "Allow"} default button "Deny" cancel button "Deny" ¬
       giving up after ${DIALOG_TIMEOUT_S}
   on error number -128
     return "CANCEL:"
@@ -80,8 +80,8 @@ if ($env:TRESOR_PROMPT_MODE -eq 'confirm') {
 $f = New-Object Windows.Forms.Form -Property @{ Text='tresor'; Width=470; Height=240; StartPosition='CenterScreen'; TopMost=$true; FormBorderStyle='FixedDialog'; MaximizeBox=$false; MinimizeBox=$false }
 $l = New-Object Windows.Forms.Label -Property @{ Text=$text; Left=12; Top=12; Width=430; Height=96 }
 $t = New-Object Windows.Forms.TextBox -Property @{ Left=12; Top=112; Width=430; UseSystemPasswordChar=$true }
-$ok = New-Object Windows.Forms.Button -Property @{ Text='Speichern'; Left=272; Top=150; Width=80; DialogResult='OK' }
-$c = New-Object Windows.Forms.Button -Property @{ Text='Abbrechen'; Left=362; Top=150; Width=80; DialogResult='Cancel' }
+$ok = New-Object Windows.Forms.Button -Property @{ Text='Save'; Left=272; Top=150; Width=80; DialogResult='OK' }
+$c = New-Object Windows.Forms.Button -Property @{ Text='Cancel'; Left=362; Top=150; Width=80; DialogResult='Cancel' }
 $f.Controls.AddRange(@($l, $t, $ok, $c)); $f.AcceptButton = $ok; $f.CancelButton = $c
 $timer = New-Object Windows.Forms.Timer -Property @{ Interval = ${DIALOG_TIMEOUT_S * 1000} }
 $timer.Add_Tick({ $f.Tag = 'timeout'; $f.Close() }); $timer.Start()
@@ -108,7 +108,7 @@ async function linuxDialog(mode: Mode, text: string): Promise<RawResult | null> 
   if (onPath('zenity')) {
     const args = mode === 'secret'
       ? ['--entry', '--hide-text', '--title=tresor', `--text=${pangoEscape(text)}`, `--timeout=${DIALOG_TIMEOUT_S}`]
-      : ['--question', '--title=tresor', `--text=${pangoEscape(text)}`, '--ok-label=Erlauben', '--cancel-label=Ablehnen', `--timeout=${DIALOG_TIMEOUT_S}`];
+      : ['--question', '--title=tresor', `--text=${pangoEscape(text)}`, '--ok-label=Allow', '--cancel-label=Deny', `--timeout=${DIALOG_TIMEOUT_S}`];
     const r = await exec('zenity', args, { timeoutMs: TIMEOUT_MS });
     if (r.code === 5) return { status: 'timeout', value: '' };
     return r.code === 0 ? { status: 'ok', value: r.stdout.replace(/\n$/, '') } : { status: 'cancelled', value: '' };
@@ -128,13 +128,13 @@ const htmlEscape = (s: string) => s.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0
 
 function formHtml(mode: Mode, text: string, token: string): string {
   const field = mode === 'secret'
-    ? '<input type="password" name="value" autofocus autocomplete="off" required><button name="action" value="ok">Speichern</button>'
-    : '<button name="action" value="ok">Erlauben</button>';
+    ? '<input type="password" name="value" autofocus autocomplete="off" required><button name="action" value="ok">Save</button>'
+    : '<button name="action" value="ok">Allow</button>';
   return `<!doctype html><meta charset="utf-8"><title>tresor</title>
 <style>body{font:15px system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem}p{white-space:pre-wrap}
 input{width:100%;padding:.5rem;margin:.5rem 0;box-sizing:border-box}button{padding:.5rem 1rem;margin-right:.5rem}</style>
 <h1>tresor</h1><p>${htmlEscape(text)}</p>
-<form method="post" action="/${token}">${field}<button name="action" value="cancel" formnovalidate>${mode === 'secret' ? 'Abbrechen' : 'Ablehnen'}</button></form>`;
+<form method="post" action="/${token}">${field}<button name="action" value="cancel" formnovalidate>${mode === 'secret' ? 'Cancel' : 'Deny'}</button></form>`;
 }
 
 function openUrl(url: string): void {
@@ -162,7 +162,7 @@ export function browserDialog(mode: Mode, text: string, open: (url: string) => v
         const form = new URLSearchParams(body);
         const ok = form.get('action') === 'ok';
         const value = (form.get('value') ?? '').trim();
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end('<meta charset="utf-8">Erledigt – du kannst den Tab schließen.');
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end('<meta charset="utf-8">Done – you can close this tab.');
         finish(ok && (mode === 'confirm' || value) ? { status: 'ok', value } : { status: 'cancelled', value: '' });
       });
     });
@@ -171,7 +171,7 @@ export function browserDialog(mode: Mode, text: string, open: (url: string) => v
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address() as { port: number };
       const url = `http://127.0.0.1:${port}/${token}`;
-      process.stderr.write(`[tresor] Eingabe im Browser: ${url}\n`);
+      process.stderr.write(`[tresor] enter the value in your browser: ${url}\n`);
       open(url);
     });
   });
@@ -186,13 +186,13 @@ async function dialog(mode: Mode, text: string): Promise<RawResult> {
   if (process.platform === 'darwin') return macDialog(mode, text);
   if (process.platform === 'win32') return windowsDialog(mode, text);
   if (!hasLinuxDesktop()) {
-    throw new Error('Kein Desktop (DISPLAY/WAYLAND_DISPLAY) für einen Dialog. Im Terminal: tresor set <name>, oder TRESOR_PROMPT=browser setzen.');
+    throw new Error('No desktop (DISPLAY/WAYLAND_DISPLAY) for a dialog. In your terminal: tresor set <name>, or set TRESOR_PROMPT=browser.');
   }
   return (await linuxDialog(mode, text)) ?? browserDialog(mode, text);
 }
 
 export async function promptSecret(name: string, description?: string): Promise<PromptResult> {
-  const text = `Wert für Secret „${name}" einfügen${description ? `\n\n${description}` : ''}\n\nWird im Schlüsselbund des Systems gespeichert. Claude sieht den Wert nicht.`;
+  const text = `Paste the value for secret "${name}"${description ? `\n\n${description}` : ''}\n\nIt is stored in your system keychain. Claude never sees the value.`;
   const r = await dialog('secret', text);
   if (r.status !== 'ok') return { status: r.status };
   const value = r.value.trim();

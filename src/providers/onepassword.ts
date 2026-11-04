@@ -7,9 +7,9 @@ const OP_REF = /^op:\/\/[^/]+\/[^/]+\/.+/;
 export const onePassword: Provider = {
   id: '1password',
   label: '1Password',
-  refHelp: 'op://<Tresor>/<Eintrag>/<Feld>  (in 1Password: Feld → "Copy Secret Reference")',
+  refHelp: 'op://<vault>/<item>/<field>  (in 1Password: field → "Copy Secret Reference")',
   validateRef(ref) {
-    if (!OP_REF.test(ref)) throw new ProviderError(`1Password-Referenz muss so aussehen: ${this.refHelp}`);
+    if (!OP_REF.test(ref)) throw new ProviderError(`1Password reference must look like: ${this.refHelp}`);
   },
   async resolve(ref, ctx) {
     this.validateRef(ref);
@@ -17,10 +17,10 @@ export const onePassword: Provider = {
   },
   async status(ctx) {
     if (!onPath('op', ctx.env)) return notInstalled('op');
-    if (ctx.env.OP_SERVICE_ACCOUNT_TOKEN) return { installed: true, ready: true, detail: 'Service-Account-Token gesetzt' };
+    if (ctx.env.OP_SERVICE_ACCOUNT_TOKEN) return { installed: true, ready: true, detail: 'service account token set' };
     const r = await exec('op', ['whoami'], { env: ctx.env, timeoutMs: 15_000 });
     return r.code === 0
-      ? { installed: true, ready: true, detail: 'angemeldet' }
-      : { installed: true, ready: false, detail: 'nicht angemeldet – Desktop-App-Integration aktivieren oder `op signin`' };
+      ? { installed: true, ready: true, detail: 'signed in' }
+      : { installed: true, ready: false, detail: 'not signed in – enable the desktop app integration or run `op signin`' };
   },
 };

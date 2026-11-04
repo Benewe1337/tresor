@@ -27,8 +27,8 @@ const LIST_ONLY = String.raw`(?!(?:ls|list|find|search|help|version|init|setup|-
 
 interface Rule { re: RegExp; reason: string }
 
-const KEYSTORE = 'Kein direkter Zugriff auf den Schlüsselbund. Nutze die tresor_* MCP-Tools (tresor_run, tresor_http).';
-const MANAGER = 'Passwort-Manager-Werte nicht direkt auslesen. Verknüpfen mit tresor_link, nutzen mit tresor_run/tresor_http.';
+const KEYSTORE = 'No direct keychain access. Use the tresor_* MCP tools (tresor_run, tresor_http).';
+const MANAGER = 'Do not read password-manager values directly. Link them with tresor_link, use them via tresor_run/tresor_http.';
 
 export const RULES: readonly Rule[] = [
   // OS credential stores
@@ -46,7 +46,7 @@ export const RULES: readonly Rule[] = [
   { re: cmd('gopass', LIST_ONLY), reason: MANAGER },
   { re: cmd('lpass', '(show|export)'), reason: MANAGER },
   // tresor's own human-only commands
-  { re: cmd('tresor', '(set|rm|delete|run|unlock|lock|setup|link)\\b'), reason: 'tresor set/rm/run/link/unlock/setup sind nur für Menschen im eigenen Terminal. Für Claude: tresor_request, tresor_link, tresor_run.' },
+  { re: cmd('tresor', '(set|rm|delete|run|unlock|lock|setup|link)\\b'), reason: 'tresor set/rm/run/link/unlock/setup are for humans in their own terminal. Claude uses tresor_request, tresor_link, tresor_run.' },
 ];
 
 const COMMAND_TOOLS = new Set(['Bash', 'PowerShell']);
@@ -77,7 +77,7 @@ export function decide(input: HookInput, registry = writtenFilesPath()): string 
   for (const f of files) {
     const rel = cwd ? relative(cwd, f) : '';
     const candidates = [norm(f), ...(rel && !rel.startsWith('..') ? [norm(rel)] : [])];
-    if (candidates.some(c => target.includes(c))) return `tresor-guard: ${f} enthält injizierte Secrets und ist für Claude gesperrt.`;
+    if (candidates.some(c => target.includes(c))) return `tresor-guard: ${f} contains injected secrets and is off-limits to Claude.`;
   }
   return null;
 }
@@ -89,7 +89,7 @@ export async function main(): Promise<void> {
   try {
     input = JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}') as HookInput;
   } catch {
-    process.stderr.write('tresor-guard: ungültige Hook-Eingabe\n');
+    process.stderr.write('tresor-guard: invalid hook input\n');
     process.exit(2); // blocking error: fail closed
   }
   const reason = decide(input);

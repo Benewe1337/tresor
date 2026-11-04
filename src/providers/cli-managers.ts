@@ -6,17 +6,17 @@ import { ProviderError, type CustomProviderConfig, type Provider, type ProviderC
 
 function nonEmptyPath(label: string, help: string) {
   return (ref: string) => {
-    if (!splitField(ref).path.trim()) throw new ProviderError(`${label}-Referenz: ${help}`);
+    if (!splitField(ref).path.trim()) throw new ProviderError(`${label} reference: ${help}`);
   };
 }
 
 const installedOnly = (bin: string) => async (ctx: ProviderContext) =>
-  onPath(bin, ctx.env) ? { installed: true, ready: true, detail: 'installiert' } : notInstalled(bin);
+  onPath(bin, ctx.env) ? { installed: true, ready: true, detail: 'installed' } : notInstalled(bin);
 
 export const pass: Provider = {
   id: 'pass',
   label: 'pass',
-  refHelp: '<pfad/im/store>[#feld]  (ohne #: erste Zeile; mit #user: Zeile "user: …")',
+  refHelp: '<path/in/store>[#field]  (no #: first line; #user: the "user: …" line)',
   validateRef(ref) { nonEmptyPath(this.label, this.refHelp)(ref); },
   async resolve(ref, ctx) {
     this.validateRef(ref);
@@ -25,7 +25,7 @@ export const pass: Provider = {
     if (!field) return requireNonEmpty(this.label, ref, lines[0] ?? '');
     const prefix = `${field.toLowerCase()}:`;
     const line = lines.slice(1).find(l => l.toLowerCase().startsWith(prefix));
-    if (line === undefined) throw new ProviderError(`pass: Feld "${field}" nicht in "${path}".`);
+    if (line === undefined) throw new ProviderError(`pass: no field "${field}" in "${path}".`);
     return requireNonEmpty(this.label, ref, line.slice(prefix.length).trim());
   },
   status: installedOnly('pass'),
@@ -34,7 +34,7 @@ export const pass: Provider = {
 export const gopass: Provider = {
   id: 'gopass',
   label: 'gopass',
-  refHelp: '<pfad/im/store>[#key]  (ohne #: Passwort)',
+  refHelp: '<path/in/store>[#key]  (no #: password)',
   validateRef(ref) { nonEmptyPath(this.label, this.refHelp)(ref); },
   async resolve(ref, ctx) {
     this.validateRef(ref);
@@ -50,7 +50,7 @@ const LPASS_FLAGS: Record<string, string> = { password: '--password', username: 
 export const lastpass: Provider = {
   id: 'lastpass',
   label: 'LastPass',
-  refHelp: '<Name oder ID>[#password|username|notes|url|<eigenes Feld>]',
+  refHelp: '<name or id>[#password|username|notes|url|<custom field>]',
   validateRef(ref) { nonEmptyPath(this.label, this.refHelp)(ref); },
   async resolve(ref, ctx) {
     this.validateRef(ref);
@@ -64,16 +64,16 @@ export const lastpass: Provider = {
 /** User-defined provider from providers.json, e.g. Doppler, Infisical, HashiCorp Vault, Dashlane. */
 export function customProvider(id: string, cfg: CustomProviderConfig): Provider {
   if (!Array.isArray(cfg.command) || cfg.command.length === 0 || !cfg.command.some(a => a.includes('{ref}'))) {
-    throw new ProviderError(`Eigener Provider "${id}": "command" braucht ein argv mit {ref}.`);
+    throw new ProviderError(`Custom provider "${id}": "command" must be an argv array containing {ref}.`);
   }
   const [bin, ...args] = cfg.command;
   const label = cfg.label ?? id;
   return {
     id,
     label,
-    refHelp: `Wird in ${JSON.stringify(cfg.command)} für {ref} eingesetzt`,
+    refHelp: `Substituted for {ref} in ${JSON.stringify(cfg.command)}`,
     validateRef(ref) {
-      if (!ref.trim()) throw new ProviderError(`${label}: leere Referenz.`);
+      if (!ref.trim()) throw new ProviderError(`${label}: empty reference.`);
     },
     async resolve(ref, ctx) {
       this.validateRef(ref);

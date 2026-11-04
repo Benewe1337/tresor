@@ -78,7 +78,7 @@ describe('Bitwarden', () => {
     stubs.add('bw', [{ match: ['get', 'item', 'Git'], stdout: JSON.stringify(item) }]);
     const store = makeStore({}, { BW_SESSION: 'env-session' });
     store.link('g', 'bitwarden', 'Git');
-    await expect(store.resolve('g')).rejects.toThrow(/kein exakter Treffer/);
+    await expect(store.resolve('g')).rejects.toThrow(/no exact match/);
   });
 
   it('errors on unknown fields and reads status', async () => {
@@ -88,7 +88,7 @@ describe('Bitwarden', () => {
     ]);
     const store = makeStore({}, { BW_SESSION: 's' });
     store.link('g', 'bitwarden', 'a1b2#nope');
-    await expect(store.resolve('g')).rejects.toThrow(/Feld "nope"/);
+    await expect(store.resolve('g')).rejects.toThrow(/no field "nope"/);
     const st = (await store.providerStatuses()).find(p => p.id === 'bitwarden')!;
     expect(st).toMatchObject({ installed: true, ready: false });
     expect(st.detail).toMatch(/locked/);
@@ -155,7 +155,7 @@ describe('pass, gopass, LastPass', () => {
     store.link('px', 'pass', 'api/openai#missing');
     expect(await store.resolve('p')).toBe(VALUE);
     expect(await store.resolve('pu')).toBe('ben');
-    await expect(store.resolve('px')).rejects.toThrow(/Feld "missing"/);
+    await expect(store.resolve('px')).rejects.toThrow(/no field "missing"/);
   });
 
   it('gopass: password only vs key', async () => {
@@ -193,8 +193,8 @@ describe('custom providers', () => {
 
   it('rejects broken definitions and builtin collisions', () => {
     expect(() => allProviders({ custom: { x: { command: ['x', 'get'] } } })).toThrow(/\{ref\}/);
-    expect(() => allProviders({ custom: { pass: { command: ['p', '{ref}'] } } })).toThrow(/kollidiert/);
-    expect(() => getProvider('nope', {})).toThrow(/Unbekannter Provider/);
+    expect(() => allProviders({ custom: { pass: { command: ['p', '{ref}'] } } })).toThrow(/collides/);
+    expect(() => getProvider('nope', {})).toThrow(/Unknown provider/);
   });
 });
 
@@ -202,9 +202,9 @@ describe('store semantics for linked secrets', () => {
   it('keeps local and linked secrets apart', () => {
     const store = makeStore();
     store.set('local', 'local-value-1');
-    expect(() => store.link('local', 'pass', 'a/b')).toThrow(/lokal gespeichert/);
+    expect(() => store.link('local', 'pass', 'a/b')).toThrow(/stored locally/);
     store.link('linked', 'pass', 'a/b');
-    expect(() => store.set('linked', 'x-value')).toThrow(/verknüpft/);
+    expect(() => store.set('linked', 'x-value')).toThrow(/is linked/);
     expect(store.meta('linked')!.source).toEqual({ provider: 'pass', ref: 'a/b' });
     expect(store.remove('linked')).toBe(true);
     expect(backend.get('local')).toBe('local-value-1');

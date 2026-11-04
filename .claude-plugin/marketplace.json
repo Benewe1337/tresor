@@ -1,0 +1,29 @@
+{
+  "name": "tresor",
+  "owner": {
+    "name": "Benewe1337"
+  },
+  "metadata": {
+    "description": "tresor – use API tokens in Claude Code without exposing them"
+  },
+  "plugins": [
+    {
+      "name": "tresor",
+      "source": "./",
+      "description": "Use API tokens from the OS keychain or your password manager without Claude ever seeing them.",
+      "version": "0.3.0",
+      "author": {
+        "name": "Benewe1337"
+      },
+      "homepage": "https://github.com/Benewe1337/tresor",
+      "repository": "https://github.com/Benewe1337/tresor",
+      "license": "PolyForm-Noncommercial-1.0.0",
+      "keywords": [
+        "secrets",
+        "keychain",
+        "password-manager",
+        "mcp"
+      ]
+    }
+  ]
+}

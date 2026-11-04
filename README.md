@@ -1,51 +1,93 @@
 # tresor
 
-API-Tokens für Claude Code, ohne dass Claude sie je sieht. Tokens liegen entweder lokal im Schlüsselbund des Systems oder bleiben in deinem Passwort-Manager. Claude kann sie benutzen (als Env-Variable, im HTTP-Header, in einer `.env`), bekommt aber nie den Wert.
+**Let Claude Code use your API tokens without ever seeing them.**
 
-Läuft auf **macOS, Windows und Linux**. Kein Server, kein eigenes Master-Passwort.
+Tokens live in your operating system's keychain or stay in your password manager. Claude works with names (`openai`, `github`); tresor injects the real value into the command, HTTP request or `.env` file and redacts it from everything Claude gets back.
 
-| | Wo der Wert liegt |
+- Works on **macOS, Windows and Linux**
+- Reads from **1Password, Bitwarden / Vaultwarden, Bitwarden Secrets Manager, KeePassXC, pass, gopass, LastPass** or any CLI you configure
+- No server, no extra master password, nothing leaves your machine
+- Ships as a Claude Code plugin: MCP server + skill that teaches the agent how to use it + guard hook
+
+| Platform | Where local values are stored |
 |---|---|
-| macOS | Schlüsselbund |
-| Windows | Anmeldeinformationsverwaltung (Credential Manager, max. 2560 Byte pro Wert) |
+| macOS | Keychain |
+| Windows | Credential Manager (max. 2560 bytes per value) |
 | Linux | Secret Service (gnome-keyring, KWallet, KeePassXC) |
-| 1Password, Bitwarden, Bitwarden Secrets Manager, KeePassXC, pass, gopass, LastPass, eigene | bleibt im Passwort-Manager, tresor merkt sich nur die Referenz |
 
-## Lokal speichern
+## Install
+
+**As a Claude Code plugin** (MCP server, skill and guard hook in one step):
+
+```
+/plugin install tresor --marketplace Benewe1337/tresor
+```
+
+On first start the plugin installs its runtime dependencies (needs Node.js ≥ 20 and npm).
+
+**Command-line tool** for storing tokens and unlocking password managers in your own terminal:
 
 ```bash
-tresor set openai                       # Wert verdeckt einfügen
-tresor set github --clip                # aus der Zwischenablage, danach wird sie geleert
-tresor set openai -d "Projekt X" --host api.openai.com   # nur an diesen Host senden
+npm install -g github:Benewe1337/tresor
+tresor --help
+```
+
+<details>
+<summary>Manual setup without the plugin</summary>
+
+```bash
+git clone https://github.com/Benewe1337/tresor && cd tresor
+npm install && npm run build && npm test && npm link
+claude mcp add --scope user tresor -- tresor-mcp
+```
+
+Add the guard hook to `~/.claude/settings.json` under `hooks.PreToolUse`:
+
+```json
+{ "matcher": "Bash|PowerShell|Read|Grep|Edit|Write|NotebookEdit",
+  "hooks": [{ "type": "command", "command": "tresor-guard", "timeout": 10 }] }
+```
+
+The skill lives in `skills/tresor/SKILL.md`; copy it to `~/.claude/skills/tresor/` if you want it without the plugin.
+</details>
+
+## Store a token locally
+
+```bash
+tresor set openai                       # paste the value, input is hidden
+tresor set github --clip                # take it from the clipboard, then clear the clipboard
+tresor set openai -d "Project X" --host api.openai.com   # only ever send it to this host
 tresor list
 tresor rm openai
 ```
 
-Oder Claude ruft `tresor_request` auf: Dann geht ein Dialog auf (macOS/Windows nativ, Linux zenity/kdialog, sonst ein einmaliges Formular im Browser auf 127.0.0.1), du fügst den Token ein, er landet direkt im Schlüsselbund. Tokens nie in den Chat kopieren.
+Or let Claude ask: `tresor_request` opens a native dialog (macOS/Windows; zenity or kdialog on Linux, otherwise a one-time form on 127.0.0.1 in your browser). You paste the token there and it goes straight into the keychain. Never paste tokens into the chat.
 
-## Aus dem Passwort-Manager verknüpfen
+## Link a password-manager entry
 
-`tresor link` speichert keinen Wert, nur *wo* er steht. Bei jeder Nutzung holt tresor ihn frisch über die CLI des Managers.
+`tresor link` stores no value, only *where* it lives. tresor fetches it fresh through the manager's CLI every time it is used.
 
 ```bash
-tresor providers                        # was ist installiert/entsperrt, Referenz-Syntax
+tresor providers                        # what is installed/unlocked, reference syntax
 tresor link openai 1password "op://Private/OpenAI/credential"
 tresor link github bitwarden "GitHub PAT#token"
 tresor link stripe keepassxc "Dev/Stripe"
 tresor link db pass "work/postgres#user"
 ```
 
-| Provider | CLI | Referenz | Einrichtung |
+| Provider | CLI | Reference | Setup |
 |---|---|---|---|
-| `1password` | `op` | `op://Tresor/Eintrag/Feld` | 1Password-App → Entwickler → CLI-Integration (Touch ID / Windows Hello), oder `OP_SERVICE_ACCOUNT_TOKEN` |
-| `bitwarden` | `bw` | `Eintrag-ID oder exakter Name[#password\|username\|notes\|totp\|uri\|Feld]` | `bw login`, dann `tresor unlock bitwarden` (Session liegt im Schlüsselbund bis `tresor lock bitwarden`). Vaultwarden geht genauso. |
-| `bws` | `bws` | Secret-UUID | `tresor setup bws` (Access-Token) |
-| `keepassxc` | `keepassxc-cli` | `Gruppe/Eintrag[#Attribut\|#totp]` | `tresor setup keepassxc --db pfad.kdbx [--keyfile k] [--no-password]` |
-| `pass` | `pass` | `pfad[#feld]` | gpg-agent |
-| `gopass` | `gopass` | `pfad[#key]` | gpg-agent / age |
-| `lastpass` | `lpass` | `Name oder ID[#feld]` | `lpass login` |
+| `1password` | `op` | `op://vault/item/field` | 1Password app → Developer → CLI integration (Touch ID / Windows Hello), or `OP_SERVICE_ACCOUNT_TOKEN` |
+| `bitwarden` | `bw` | `item id or exact name[#password\|username\|notes\|totp\|uri\|field]` | `bw login`, then `tresor unlock bitwarden` (session kept in the keychain until `tresor lock bitwarden`). Vaultwarden works the same way. |
+| `bws` | `bws` | secret UUID | `tresor setup bws` (access token) |
+| `keepassxc` | `keepassxc-cli` | `group/entry[#attribute\|#totp]` | `tresor setup keepassxc --db file.kdbx [--keyfile k] [--no-password]` |
+| `pass` | `pass` | `path[#field]` | gpg-agent |
+| `gopass` | `gopass` | `path[#key]` | gpg-agent / age |
+| `lastpass` | `lpass` | `name or id[#field]` | `lpass login` |
 
-**Eigene Provider** (Doppler, Infisical, HashiCorp Vault, Dashlane, …) in `providers.json` im tresor-Ordner (`~/.config/tresor`, Windows `%APPDATA%\tresor`):
+Claude can link entries too (`tresor_link`), but only after you approve it in a dialog.
+
+**Custom providers** (Doppler, Infisical, HashiCorp Vault, Dashlane, …) go into `providers.json` in the tresor folder (`~/.config/tresor`, on Windows `%APPDATA%\tresor`):
 
 ```json
 {
@@ -57,66 +99,74 @@ tresor link db pass "work/postgres#user"
 }
 ```
 
-`{ref}` wird als einzelnes Argument eingesetzt, ohne Shell. `jsonPath` (optional, Punkt-getrennt) holt den Wert aus JSON-Ausgabe.
+`{ref}` is passed as a single argument, never through a shell. `jsonPath` (optional, dot-separated) picks the value out of JSON output.
 
-## Was Claude damit machen kann (MCP `tresor`)
+## What Claude can do (MCP tools)
 
-| Tool | Zweck |
+| Tool | Purpose |
 |---|---|
-| `tresor_list` | Namen, Beschreibung, erlaubte Hosts, Quelle. Keine Werte. |
-| `tresor_providers` | Installierte/entsperrte Passwort-Manager und Referenz-Syntax |
-| `tresor_request` | Dialog öffnen, du gibst den Wert ein |
-| `tresor_link` | Passwort-Manager-Eintrag verknüpfen – **nur nach deiner Bestätigung im Dialog** |
-| `tresor_run` | Befehl mit `env: {"GH_TOKEN":"github"}`, Ausgabe wird redigiert |
-| `tresor_http` | HTTPS-Request, `{"Authorization":"Bearer {{secret:openai}}"}` |
-| `tresor_write_file` | z.B. `.env` mit `KEY={{secret:openai}}`, mode 600, danach für Claude gesperrt |
+| `tresor_list` | Names, descriptions, allowed hosts, source. Never values. |
+| `tresor_providers` | Installed/unlocked password managers and their reference syntax |
+| `tresor_request` | Open a dialog so you can enter a value |
+| `tresor_link` | Link a password-manager entry, **only after you confirm in a dialog** |
+| `tresor_run` | Run a command with `env: {"GH_TOKEN": "github"}`, output is redacted |
+| `tresor_http` | HTTPS request with `{"Authorization": "Bearer {{secret:openai}}"}` |
+| `tresor_write_file` | Write e.g. a `.env` with `KEY={{secret:openai}}` (mode 600); Claude cannot read it back |
 
-Bewusst **nicht** vorhanden: ein Tool, das einen Wert zurückgibt, und ein Lösch-Tool.
+Deliberately **missing**: any tool that returns a value, and any tool that deletes one.
 
-## Andere MCP-Server mit Tokens starten
+The bundled skill (`skills/tresor/SKILL.md`) tells the agent when to reach for these tools, how to name secrets, and what to do with each error message.
 
-Statt Tokens in `~/.claude.json` zu schreiben:
+## Starting other MCP servers with tokens
+
+Instead of putting tokens into `~/.claude.json`:
 
 ```json
-"mein-mcp": { "command": "tresor", "args": ["run", "-e", "API_KEY=meinmcp", "--", "npx", "-y", "mein-mcp"] }
+"my-mcp": { "command": "tresor", "args": ["run", "-e", "API_KEY=mymcp", "--", "npx", "-y", "my-mcp"] }
 ```
 
-## Installation
+## Threat model
+
+tresor protects against **accidental** leaks: tokens in the chat, in logs, in config files, in tool output (`env`, verbose curl, error messages). It redacts the value plus its Base64, URL-encoded and JSON-escaped forms.
+
+It does **not** protect against an agent that is determined to get a value: anything allowed to run arbitrary commands with an injected token can transform it (reverse it, split it) or send it to a server of its choosing. What helps here: host pinning (`--host`, enforced by `tresor_http`), password-manager links requiring your approval, and reviewing `tresor_run` calls in the permission prompt.
+
+The guard hook (`tresor-guard`) blocks, inside Claude sessions:
+- reading OS credential stores directly (`security find-generic-password`, `secret-tool lookup`, `keyctl print`, `Get-StoredCredential`, `PasswordVault`, keyring libraries),
+- read commands of password-manager CLIs (`op read`, `bw get`/`unlock`/`list`, `bws secret`, `keepassxc-cli show`, `pass show`, `gopass show`, `lpass show`),
+- `tresor set|rm|run|link|unlock|setup`,
+- reading files written by `tresor_write_file`.
+
+Status commands like `bw status`, `op whoami` or `pass ls` stay allowed. If the hook input is malformed, it blocks (fails closed). It matches command text, so it can occasionally block a harmless command that merely *mentions* one of these patterns.
+
+## Configuration
+
+| Variable | Effect |
+|---|---|
+| `TRESOR_HOME` | Metadata folder (default `~/.config/tresor`, `%APPDATA%\tresor` on Windows) |
+| `TRESOR_PROMPT=browser` | Always use the browser form instead of a native dialog (e.g. WSL) |
+| `TRESOR_LINUX_STORE=keyutils` | Linux without Secret Service: kernel keyring, **lost on reboot** |
+
+## How it works
+
+- Local values: `@napi-rs/keyring`, service `tresor`, account = secret name. Provider sessions and passwords (Bitwarden session, KeePassXC password, bws token) are stored there as `__internal.*`.
+- Metadata files contain no values: `index.json`, `providers.json`, `written-files.txt`.
+- Processes are started without a shell via `cross-spawn` (including `.cmd` shims on Windows). The KeePassXC password is piped through stdin, never passed as an argument.
+
+## Development
 
 ```bash
-git clone https://github.com/Benewe1337/tresor && cd tresor
-npm install && npm run build && npm test && npm link
-claude mcp add --scope user tresor -- tresor-mcp
+npm install && npm run build && npm test
+TRESOR_INTEGRATION=1 npm test          # also hit the real OS credential store, pass and KeePassXC if installed
+docker run --rm -v "$PWD":/src:ro node:22-bookworm bash /src/scripts/linux-integration.sh
 ```
 
-Guard-Hook in `~/.claude/settings.json` unter `hooks.PreToolUse` ergänzen (alle Plattformen, kein `jq` nötig):
+`dist/` is committed so the plugin runs without a build step; CI fails if it is out of date. CI runs on macOS, Linux and Windows.
 
-```json
-{ "matcher": "Bash|PowerShell|Read|Grep|Edit|Write|NotebookEdit",
-  "hooks": [{ "type": "command", "command": "tresor-guard", "timeout": 10 }] }
-```
+## License
 
-Node ≥ 20. Linux braucht einen laufenden, entsperrten Secret Service. Ohne Desktop: `TRESOR_LINUX_STORE=keyutils` (Kernel-Keyring, geht beim Neustart verloren) bzw. `TRESOR_PROMPT=browser` für Dialoge.
+[PolyForm Noncommercial 1.0.0](LICENSE): free for personal use, hobby projects, research, education and non-profit organisations.
 
-## Bedrohungsmodell (ehrlich)
+**Commercial use** (at work, for clients, inside a company) needs a separate license. Open an issue or contact [@Benewe1337](https://github.com/Benewe1337) on GitHub.
 
-Schützt gegen **versehentliche** Leaks: Tokens im Chat, in Logs, in Configs, in Tool-Ausgaben (`env`, verbose curl, Fehlermeldungen). Redigiert werden der Wert sowie Base64-, URL- und JSON-Varianten.
-
-Schützt **nicht** gegen einen Agenten, der es gezielt darauf anlegt: Wer beliebige Befehle mit injiziertem Token ausführen darf, kann ihn umformen (rückwärts, in Stücken) oder an einen eigenen Server schicken. Dagegen helfen `--host`-Pinning (gilt für `tresor_http`), dass Verknüpfungen mit dem Passwort-Manager nur nach deiner Bestätigung entstehen, und dass du `tresor_run`-Aufrufe im Permission-Prompt ansiehst.
-
-Der Guard-Hook (`tresor-guard`) blockt in Claude-Sessions:
-- direktes Auslesen der Schlüsselbünde (`security find-generic-password`, `secret-tool lookup`, `keyctl print`, `Get-StoredCredential`, `PasswordVault`, Keyring-Bibliotheken),
-- Lese-Befehle der Passwort-Manager-CLIs (`op read`, `bw get`/`unlock`/`list`, `bws secret`, `keepassxc-cli show`, `pass show`, `gopass show`, `lpass show`),
-- `tresor set|rm|run|link|unlock|setup`,
-- das Lesen von Dateien, die `tresor_write_file` geschrieben hat.
-
-Status-Befehle wie `bw status`, `op whoami`, `pass ls` bleiben erlaubt. Ist die Hook-Eingabe kaputt, blockt er (fail closed).
-
-## Technik
-
-- Werte lokal: `@napi-rs/keyring`, Dienst `tresor`, Konto = Name. Provider-Sitzungen/Passwörter (Bitwarden-Session, KeePassXC-Passwort, bws-Token) liegen dort unter `__internal.*`.
-- Metadaten: `index.json` (keine Werte), `providers.json` (DB-Pfad, eigene Provider), `written-files.txt`.
-- Prozesse ohne Shell über `cross-spawn` (auch `.cmd`-Shims unter Windows). KeePassXC-Passwort geht per stdin, nie per argv.
-- Tests: `npm test` (Unit, MCP, Guard, Dialog-Fallback, Provider gegen Stub-CLIs). Integration gegen echte Systeme: `TRESOR_INTEGRATION=1 npm test`; Linux komplett per Docker: `docker run --rm -v "$PWD":/src:ro node:22-bookworm bash /src/scripts/linux-integration.sh`. CI läuft auf macOS, Linux und Windows.
-
-Lizenz: MIT.
+Versions up to and including 0.2.0 (commit `c282ed5`) were published under the MIT License; copies of those versions keep that license.

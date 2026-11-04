@@ -1,7 +1,7 @@
 {
   "name": "tresor",
-  "version": "0.2.0",
-  "description": "Lokale API-Tokens im macOS-Schlüsselbund, injiziert ohne dass Claude sie sieht",
+  "version": "0.3.0",
+  "description": "Use API tokens in Claude Code without exposing them: OS keychain or password manager, injected with redacted output",
   "directories": {
     "test": "test"
   },
@@ -10,7 +10,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
-  "license": "MIT",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
@@ -36,5 +36,13 @@
   },
   "engines": {
     "node": ">=20"
-  }
+  },
+  "files": [
+    "dist",
+    "plugin",
+    "skills",
+    "hooks/hooks.json",
+    ".claude-plugin",
+    ".mcp.json"
+  ]
 }

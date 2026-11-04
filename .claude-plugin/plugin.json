@@ -1,0 +1,23 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "tresor",
+  "version": "0.3.0",
+  "description": "Let Claude use your API tokens without ever seeing them: OS keychain or your password manager (1Password, Bitwarden, KeePassXC, pass, …), injected into commands, HTTP requests and .env files with redacted output.",
+  "author": {
+    "name": "Benewe1337"
+  },
+  "homepage": "https://github.com/Benewe1337/tresor",
+  "repository": "https://github.com/Benewe1337/tresor",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "keywords": [
+    "secrets",
+    "api-tokens",
+    "keychain",
+    "password-manager",
+    "1password",
+    "bitwarden",
+    "keepassxc",
+    "mcp",
+    "security"
+  ]
+}

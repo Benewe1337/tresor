@@ -67,9 +67,9 @@ export class KeychainBackend implements SecretBackend {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       const hint = process.platform === 'linux'
-        ? ' – Läuft ein Secret Service (gnome-keyring, KWallet, KeePassXC) und ist er entsperrt? Notlösung ohne Desktop: TRESOR_LINUX_STORE=keyutils (geht beim Neustart verloren).'
-        : process.platform === 'win32' && /long/i.test(msg) ? ' – Windows-Anmeldeinformationen fassen max. 2560 Byte.' : '';
-      throw new Error(`Schlüsselbund: ${msg}${hint}`);
+        ? ' – Is a Secret Service (gnome-keyring, KWallet, KeePassXC) running and unlocked? Headless fallback: TRESOR_LINUX_STORE=keyutils (lost on reboot).'
+        : process.platform === 'win32' && /long/i.test(msg) ? ' – Windows Credential Manager holds at most 2560 bytes per value.' : '';
+      throw new Error(`Credential store: ${msg}${hint}`);
     }
   }
 }
@@ -169,7 +169,7 @@ export class SecretStore {
     validateName(name);
     if (value.length === 0) throw new Error('Refusing to store an empty secret.');
     const src = this.meta(name)?.source;
-    if (src) throw new Error(`"${name}" ist mit ${src.provider} verknüpft. Erst \`tresor rm ${name}\`, dann neu setzen.`);
+    if (src) throw new Error(`"${name}" is linked to ${src.provider}. Run \`tresor rm ${name}\` first.`);
     this.backend.set(name, value);
     return this.upsert(name, opts);
   }
@@ -178,7 +178,7 @@ export class SecretStore {
   link(name: string, provider: string, ref: string, opts: { description?: string; hosts?: string[] } = {}): 'created' | 'updated' {
     validateName(name);
     const prev = this.meta(name);
-    if (prev && !prev.source) throw new Error(`"${name}" ist lokal gespeichert. Erst \`tresor rm ${name}\`, dann verknüpfen.`);
+    if (prev && !prev.source) throw new Error(`"${name}" is stored locally. Run \`tresor rm ${name}\` before linking it.`);
     getProvider(provider, this.providerContext().config).validateRef(ref);
     return this.upsert(name, { ...opts, source: { provider, ref } });
   }

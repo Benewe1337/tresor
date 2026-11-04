@@ -3,12 +3,12 @@ import { ProviderError, type ProviderStatus } from './types.js';
 
 /** Run a provider CLI and return stdout without its trailing newline; throws with stderr on failure. */
 export async function runCli(label: string, bin: string, args: string[], opts: ExecOptions = {}): Promise<string> {
-  if (!onPath(bin, opts.env)) throw new ProviderError(`${label}: "${bin}" ist nicht installiert bzw. nicht im PATH.`);
+  if (!onPath(bin, opts.env)) throw new ProviderError(`${label}: "${bin}" is not installed or not on PATH.`);
   const r = await exec(bin, args, opts);
-  if (r.timedOut) throw new ProviderError(`${label}: Zeitüberschreitung (wartet die CLI auf eine Eingabe/Entsperrung?).`);
+  if (r.timedOut) throw new ProviderError(`${label}: timed out (is the CLI waiting for input or an unlock?).`);
   if (r.code !== 0) {
     const msg = (r.stderr || r.stdout).trim().split('\n').slice(0, 3).join(' ');
-    throw new ProviderError(`${label}: ${msg || `Exit-Code ${r.code}`}`);
+    throw new ProviderError(`${label}: ${msg || `exit code ${r.code}`}`);
   }
   return chompNewline(r.stdout);
 }
@@ -21,11 +21,11 @@ export function splitField(ref: string): { path: string; field?: string } {
 }
 
 export function notInstalled(bin: string): ProviderStatus {
-  return { installed: false, ready: false, detail: `${bin} nicht gefunden` };
+  return { installed: false, ready: false, detail: `${bin} not found` };
 }
 
 export function requireNonEmpty(label: string, ref: string, value: string): string {
-  if (!value) throw new ProviderError(`${label}: "${ref}" ist leer.`);
+  if (!value) throw new ProviderError(`${label}: "${ref}" is empty.`);
   return value;
 }
 

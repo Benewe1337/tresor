@@ -59,8 +59,8 @@ describe('tresor-guard', () => {
   });
 
   it('blocks reading written files by absolute and relative path', () => {
-    expect(decide({ tool_name: 'Read', tool_input: { file_path: FILE } }, registry)).toMatch(/gesperrt/);
-    expect(decide({ tool_name: 'Grep', tool_input: { pattern: 'KEY', path: '.env' }, cwd: DIR }, registry)).toMatch(/gesperrt/);
+    expect(decide({ tool_name: 'Read', tool_input: { file_path: FILE } }, registry)).toMatch(/off-limits/);
+    expect(decide({ tool_name: 'Grep', tool_input: { pattern: 'KEY', path: '.env' }, cwd: DIR }, registry)).toMatch(/off-limits/);
     expect(bash('cat .env', DIR)).toBe('deny');
     expect(decide({ tool_name: 'Read', tool_input: { file_path: join(DIR, 'README.md') } }, registry)).toBeNull();
   });
