@@ -18,3 +18,9 @@ export const providersConfigPath = (): string => join(tresorHome(), 'providers.j
 
 /** Files tresor wrote secrets into; the guard hook blocks Claude from reading them. */
 export const writtenFilesPath = (): string => join(tresorHome(), 'written-files.txt');
+
+/** Usage log (JSON lines, no values). */
+export const auditLogPath = (): string => join(tresorHome(), 'audit.log');
+
+/** Project profiles (.tresor.json) the user approved, keyed by path → content hash. */
+export const trustedProfilesPath = (): string => join(tresorHome(), 'trusted-profiles.json');

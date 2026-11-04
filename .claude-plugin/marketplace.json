@@ -11,7 +11,7 @@
       "name": "tresor",
       "source": "./",
       "description": "Use API tokens from the OS keychain or your password manager without Claude ever seeing them.",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "author": {
         "name": "Benewe1337"
       },

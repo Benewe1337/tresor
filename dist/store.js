@@ -90,12 +90,31 @@ export class SecretStore {
         const next = {
             description: patch.description ?? prev?.description,
             hosts: normalizeHosts(patch.hosts) ?? prev?.hosts,
-            source: patch.source,
+            source: 'source' in patch ? patch.source : prev?.source,
+            policy: 'policy' in patch ? patch.policy : prev?.policy,
             createdAt: prev?.createdAt ?? now,
             updatedAt: now,
         };
         this.writeIndex({ ...index, secrets: { ...index.secrets, [name]: next } });
         return prev ? 'updated' : 'created';
+    }
+    /** Human-only (CLI): change hosts / policy of an existing secret. */
+    updatePolicy(name, patch) {
+        validateName(name);
+        const prev = this.meta(name);
+        if (!prev)
+            throw new Error(`Unknown secret "${name}"`);
+        const policy = { ...prev.policy, ...patch.policy };
+        const cleaned = Object.fromEntries(Object.entries(policy).filter(([, v]) => v !== undefined && !(Array.isArray(v) && v.length === 0)));
+        const index = this.readIndex();
+        const next = {
+            ...prev,
+            hosts: patch.hosts === null ? undefined : normalizeHosts(patch.hosts) ?? prev.hosts,
+            policy: Object.keys(cleaned).length ? cleaned : undefined,
+            updatedAt: new Date().toISOString(),
+        };
+        this.writeIndex({ ...index, secrets: { ...index.secrets, [name]: next } });
+        return next;
     }
     providerContext() {
         const b = this.backend;

@@ -8,26 +8,28 @@
  * redacted because they'd shred ordinary output.
  */
 export const MIN_REDACT_LENGTH = 4;
-function variants(value) {
+/** The value plus the encodings it commonly shows up in (headers, URLs, JSON, logs). */
+export function secretVariants(value, minLength = MIN_REDACT_LENGTH) {
     const b64 = Buffer.from(value, 'utf-8').toString('base64');
-    const out = new Set([
-        value,
-        value.trim(),
-        b64,
-        b64.replace(/=+$/, ''),
-        Buffer.from(value, 'utf-8').toString('base64url'),
-        encodeURIComponent(value),
-        JSON.stringify(value).slice(1, -1),
-    ]);
-    return [...out].filter(v => v.length >= MIN_REDACT_LENGTH);
+    const candidates = [
+        { kind: 'raw', text: value },
+        { kind: 'trimmed', text: value.trim() },
+        { kind: 'base64', text: b64 },
+        { kind: 'base64', text: b64.replace(/=+$/, '') },
+        { kind: 'base64url', text: Buffer.from(value, 'utf-8').toString('base64url') },
+        { kind: 'url-encoded', text: encodeURIComponent(value) },
+        { kind: 'json-escaped', text: JSON.stringify(value).slice(1, -1) },
+    ];
+    const seen = new Set();
+    return candidates.filter(v => v.text.length >= minLength && !seen.has(v.text) && seen.add(v.text));
 }
 export class Redactor {
     pairs;
     constructor(secrets) {
         const pairs = [];
         for (const [name, value] of Object.entries(secrets)) {
-            for (const v of variants(value))
-                pairs.push([v, `[tresor:${name}]`]);
+            for (const v of secretVariants(value))
+                pairs.push([v.text, `[tresor:${name}]`]);
         }
         // Longest first so a value that contains another secret is caught whole.
         this.pairs = pairs.sort((a, b) => b[0].length - a[0].length);

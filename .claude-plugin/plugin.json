@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
   "name": "tresor",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Let Claude use your API tokens without ever seeing them: OS keychain or your password manager (1Password, Bitwarden, KeePassXC, pass, …), injected into commands, HTTP requests and .env files with redacted output.",
   "author": {
     "name": "Benewe1337"

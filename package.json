@@ -1,6 +1,6 @@
 {
   "name": "tresor",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Use API tokens in Claude Code without exposing them: OS keychain or password manager, injected with redacted output",
   "directories": {
     "test": "test"
@@ -16,6 +16,7 @@
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@napi-rs/keyring": "^2.1.2",
     "cross-spawn": "^7.0.6",
+    "dotenv": "^16.6.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {

@@ -7,8 +7,9 @@
  * against accidents, not a sandbox — see README "Bedrohungsmodell".
  */
 import { existsSync, readFileSync } from 'fs';
+import { homedir } from 'os';
 import { isAbsolute, join, relative } from 'path';
-import { writtenFilesPath } from './paths.js';
+import { tresorHome, writtenFilesPath } from './paths.js';
 /** Matches `bin sub…` in command position (start, after ; & | ( or $( ), with optional path, sudo/env, .exe/.cmd. */
 function cmd(bin, sub) {
     const pre = String.raw `(?:^|[;&|({\`\n]|\$\()\s*(?:(?:sudo|exec|command|nohup|time)\s+|env\s+(?:\S+=\S*\s+)*)*(?:[^\s;&|()]*[\\/])?`;
@@ -33,8 +34,22 @@ export const RULES = [
     { re: cmd('gopass', LIST_ONLY), reason: MANAGER },
     { re: cmd('lpass', '(show|export)'), reason: MANAGER },
     // tresor's own human-only commands
-    { re: cmd('tresor', '(set|rm|delete|run|unlock|lock|setup|link)\\b'), reason: 'tresor set/rm/run/link/unlock/setup are for humans in their own terminal. Claude uses tresor_request, tresor_link, tresor_run.' },
+    { re: cmd('tresor', '(set|rm|delete|run|unlock|lock|setup|link|policy)\\b'), reason: 'tresor set/rm/run/link/unlock/setup/policy are for humans in their own terminal. Claude uses tresor_request, tresor_link, tresor_run.' },
+    { re: cmd('tresor', 'profile\\s+(allow|add|rm)\\b'), reason: 'Trusting or changing a tresor project profile is up to the user (tresor profile allow/add in their own terminal).' },
 ];
+const HOME_REASON = 'The tresor folder (index, policies, trusted profiles, log) is managed by tresor only. Use tresor_list / tresor_log to read it.';
+const EDIT_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit']);
+/** Text forms of the tresor folder a command might use. */
+function homeNeedles(home) {
+    const n = norm(home);
+    return [n, n.replace(homedir().replace(/\\/g, '/').toLowerCase(), '~'), n.replace(norm(homedir()), '~'), '$TRESOR_HOME', '%APPDATA%\\tresor', 'appdata/roaming/tresor', '.config/tresor']
+        .map(s => s.toLowerCase())
+        .filter((s, i, all) => s.length > 1 && all.indexOf(s) === i);
+}
+function touchesHome(text, home) {
+    const t = norm(text).toLowerCase().replace(/\\/g, '/');
+    return homeNeedles(home).some(n => t.includes(n.replace(/\\/g, '/')));
+}
 const COMMAND_TOOLS = new Set(['Bash', 'PowerShell']);
 const norm = (p) => (process.platform === 'win32' ? p.replace(/\\/g, '/').toLowerCase() : p);
 function writtenFiles(registry) {
@@ -43,20 +58,27 @@ function writtenFiles(registry) {
     return readFileSync(registry, 'utf-8').split(/\r?\n/).filter(Boolean);
 }
 /** Returns a deny reason, or null to let the tool call through. */
-export function decide(input, registry = writtenFilesPath()) {
+export function decide(input, registry = writtenFilesPath(), home = tresorHome()) {
     const tool = input.tool_name ?? '';
     const ti = input.tool_input ?? {};
     const command = typeof ti.command === 'string' ? ti.command : '';
+    const pathArg = [ti.file_path, ti.path, ti.notebook_path].find((v) => typeof v === 'string');
+    const cwd = input.cwd ?? '';
     if (COMMAND_TOOLS.has(tool) && command) {
         const hit = RULES.find(r => r.re.test(command));
         if (hit)
             return `tresor-guard: ${hit.reason}`;
+        if (touchesHome(command, home))
+            return `tresor-guard: ${HOME_REASON}`;
+    }
+    if (EDIT_TOOLS.has(tool) && pathArg) {
+        const abs = cwd && !isAbsolute(pathArg) ? join(cwd, pathArg) : pathArg;
+        if (touchesHome(abs, home))
+            return `tresor-guard: ${HOME_REASON}`;
     }
     const files = writtenFiles(registry);
     if (files.length === 0)
         return null;
-    const pathArg = [ti.file_path, ti.path, ti.notebook_path].find((v) => typeof v === 'string');
-    const cwd = input.cwd ?? '';
     const target = norm(COMMAND_TOOLS.has(tool) ? command : pathArg && cwd && !isAbsolute(pathArg) ? join(cwd, pathArg) : pathArg ?? '');
     if (!target)
         return null;

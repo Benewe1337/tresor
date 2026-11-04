@@ -34,8 +34,19 @@ export interface SecretMeta {
   hosts?: string[];
   /** Set for linked secrets; absent for values stored locally. */
   source?: SecretSource;
+  /** Restrictions on how the agent may use this secret (set by the human via `tresor policy`). */
+  policy?: SecretPolicy;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SecretPolicy {
+  /** tresor_run may only start these programs (basename, e.g. "gh"); also forbids tresor_write_file. */
+  allowCommands?: string[];
+  /** Ask the user in a dialog before each use ('always') or once per MCP session ('session'). */
+  confirm?: 'always' | 'session';
+  /** ISO date; after it, uses still work but come with a "rotate me" warning. */
+  expiresAt?: string;
 }
 
 interface IndexFile {
@@ -129,12 +140,31 @@ export class SecretStore {
     const next: SecretMeta = {
       description: patch.description ?? prev?.description,
       hosts: normalizeHosts(patch.hosts) ?? prev?.hosts,
-      source: patch.source,
+      source: 'source' in patch ? patch.source : prev?.source,
+      policy: 'policy' in patch ? patch.policy : prev?.policy,
       createdAt: prev?.createdAt ?? now,
       updatedAt: now,
     };
     this.writeIndex({ ...index, secrets: { ...index.secrets, [name]: next } });
     return prev ? 'updated' : 'created';
+  }
+
+  /** Human-only (CLI): change hosts / policy of an existing secret. */
+  updatePolicy(name: string, patch: { hosts?: string[] | null; policy?: SecretPolicy }): SecretMeta {
+    validateName(name);
+    const prev = this.meta(name);
+    if (!prev) throw new Error(`Unknown secret "${name}"`);
+    const policy = { ...prev.policy, ...patch.policy };
+    const cleaned = Object.fromEntries(Object.entries(policy).filter(([, v]) => v !== undefined && !(Array.isArray(v) && v.length === 0))) as SecretPolicy;
+    const index = this.readIndex();
+    const next: SecretMeta = {
+      ...prev,
+      hosts: patch.hosts === null ? undefined : normalizeHosts(patch.hosts) ?? prev.hosts,
+      policy: Object.keys(cleaned).length ? cleaned : undefined,
+      updatedAt: new Date().toISOString(),
+    };
+    this.writeIndex({ ...index, secrets: { ...index.secrets, [name]: next } });
+    return next;
   }
 
   providerContext(): ProviderContext {

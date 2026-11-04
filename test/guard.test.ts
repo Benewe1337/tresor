@@ -58,6 +58,23 @@ describe('tresor-guard', () => {
     expect(ps('Get-ChildItem')).toBeNull();
   });
 
+  it('keeps Claude out of policies, profile trust and the tresor folder', () => {
+    const home = process.platform === 'win32' ? 'C:\\Users\\x\\AppData\\Roaming\\tresor' : '/home/x/.config/tresor';
+    const d = (tool_name: string, tool_input: Record<string, unknown>) => decide({ tool_name, tool_input, cwd: '/tmp' }, registry, home);
+    expect(d('Bash', { command: 'tresor policy gh --confirm off' })).toMatch(/humans/);
+    expect(d('Bash', { command: 'tresor profile allow' })).toMatch(/up to the user/);
+    expect(d('Bash', { command: 'tresor profile add X=y' })).toMatch(/up to the user/);
+    expect(d('Bash', { command: 'sed -i s/x/y/ ~/.config/tresor/index.json' })).toMatch(/managed by tresor/);
+    expect(d('Bash', { command: 'echo {} > "$TRESOR_HOME/trusted-profiles.json"' })).toMatch(/managed by tresor/);
+    expect(d('Edit', { file_path: join(home, 'index.json') })).toMatch(/managed by tresor/);
+    expect(d('Write', { file_path: join(home, 'trusted-profiles.json') })).toMatch(/managed by tresor/);
+    // reading through the dedicated tools stays possible
+    expect(d('Read', { file_path: join(home, 'index.json') })).toBeNull();
+    for (const ok of ['tresor scan --staged', 'tresor import .env --yes', 'tresor log', 'tresor profile', 'tresor list']) {
+      expect(d('Bash', { command: ok })).toBeNull();
+    }
+  });
+
   it('blocks reading written files by absolute and relative path', () => {
     expect(decide({ tool_name: 'Read', tool_input: { file_path: FILE } }, registry)).toMatch(/off-limits/);
     expect(decide({ tool_name: 'Grep', tool_input: { pattern: 'KEY', path: '.env' }, cwd: DIR }, registry)).toMatch(/off-limits/);
