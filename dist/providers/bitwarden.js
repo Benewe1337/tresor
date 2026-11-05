@@ -55,7 +55,7 @@ export const bitwarden = {
     async status(ctx) {
         if (!onPath('bw', ctx.env))
             return notInstalled('bw');
-        const r = await exec('bw', ['status', '--nointeraction'], { env: bwEnv(ctx), timeoutMs: 20_000 });
+        const r = await exec('bw', ['status', '--nointeraction'], { env: bwEnv(ctx), timeoutMs: 10_000 });
         let state = 'unknown';
         try {
             state = String(JSON.parse(r.stdout).status ?? state);

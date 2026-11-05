@@ -81,7 +81,8 @@ describe('MCP tools', () => {
   });
 
   it('tresor_providers lists all builtin managers', async () => {
-    const { call } = await connect(store);
+    // Isolated PATH: real CLIs on CI runners (aws, az, gcloud) must not be queried.
+    const { call } = await connect(new SecretStore(new MemoryBackend(), { providersConfig: {}, env: new Stubs().env() }));
     const ids = (JSON.parse((await call('tresor_providers')).content[0].text) as Array<{ id: string }>).map(p => p.id);
     expect(ids).toEqual(['1password', 'bitwarden', 'bws', 'keepassxc', 'protonpass', 'dashlane', 'keeper', 'pass', 'gopass', 'lastpass', 'aws-sm', 'azure-kv', 'gcp-sm', 'doppler', 'infisical', 'vault', 'openbao']);
   });

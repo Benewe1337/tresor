@@ -6,7 +6,7 @@
 import { exec, onPath } from '../platform/exec.js';
 import { notInstalled, requireNonEmpty, runCli, splitField } from './common.js';
 import { ProviderError } from './types.js';
-const STATUS_TIMEOUT = 20_000;
+const STATUS_TIMEOUT = 10_000;
 async function statusByExit(bin, args, ctx, okDetail, failDetail) {
     if (!onPath(bin, ctx.env))
         return notInstalled(bin);

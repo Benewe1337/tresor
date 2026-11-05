@@ -18,7 +18,7 @@ export const onePassword: Provider = {
   async status(ctx) {
     if (!onPath('op', ctx.env)) return notInstalled('op');
     if (ctx.env.OP_SERVICE_ACCOUNT_TOKEN) return { installed: true, ready: true, detail: 'service account token set' };
-    const r = await exec('op', ['whoami'], { env: ctx.env, timeoutMs: 15_000 });
+    const r = await exec('op', ['whoami'], { env: ctx.env, timeoutMs: 10_000 });
     return r.code === 0
       ? { installed: true, ready: true, detail: 'signed in' }
       : { installed: true, ready: false, detail: 'not signed in – enable the desktop app integration or run `op signin`' };

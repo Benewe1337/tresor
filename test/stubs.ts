@@ -6,7 +6,7 @@
 
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
-import { delimiter, join } from 'path';
+import { delimiter, dirname, join } from 'path';
 
 export interface StubResponse { match: string[]; stdout?: string; stderr?: string; code?: number }
 export interface StubCall { bin: string; argv: string[]; env: Record<string, string | undefined>; stdin: string }
@@ -32,9 +32,13 @@ process.exit(hit.code ?? 0);
 export class Stubs {
   readonly dir = mkdtempSync(join(tmpdir(), 'tresor-stubs-'));
 
-  /** Env whose PATH starts with the stub dir (and contains node). */
+  /**
+   * Env whose PATH holds only the stubs and node. Real CLIs on the machine (CI
+   * runners ship aws, az, gcloud …) must never be reached by provider tests.
+   */
   env(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
-    return { ...process.env, PATH: `${this.dir}${delimiter}${process.env.PATH ?? process.env.Path ?? ''}`, ...extra };
+    const { Path: _winPath, ...rest } = process.env;
+    return { ...rest, PATH: `${this.dir}${delimiter}${dirname(process.execPath)}`, ...extra };
   }
 
   add(bin: string, responses: StubResponse[]): this {
