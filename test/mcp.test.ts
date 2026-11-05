@@ -33,7 +33,7 @@ describe('MCP tools', () => {
   it('exposes no tool that could return or delete a value', async () => {
     const { client } = await connect(store);
     const names = (await client.listTools()).tools.map(t => t.name).sort();
-    expect(names).toEqual(['tresor_http', 'tresor_import', 'tresor_link', 'tresor_list', 'tresor_log', 'tresor_providers', 'tresor_request', 'tresor_run', 'tresor_scan', 'tresor_write_file']);
+    expect(names).toEqual(['tresor_doctor', 'tresor_http', 'tresor_import', 'tresor_link', 'tresor_list', 'tresor_log', 'tresor_providers', 'tresor_request', 'tresor_run', 'tresor_scan', 'tresor_write_file'].sort());
   });
 
   it('tresor_request stores the dialog value without returning it', async () => {
@@ -104,7 +104,7 @@ describe('startup', () => {
       env: { ...process.env, TRESOR_HOME: process.env.TRESOR_HOME! } as Record<string, string>,
     }));
     const tools = await client.listTools();
-    expect(tools.tools.length).toBe(10);
+    expect(tools.tools.length).toBe(11);
     const list = (await client.callTool({ name: 'tresor_list', arguments: {} })) as TextResult;
     expect(list.content[0].text).toBe('[]');
     await client.close();

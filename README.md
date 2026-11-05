@@ -29,7 +29,17 @@ Tokens live in your operating system's keychain, stay in your password manager, 
 
 On first start the plugin installs its runtime dependencies (needs Node.js ≥ 20 and npm).
 
-**Cursor, Codex, Gemini CLI, VS Code**: install the command-line tool (below), then
+**Other agents** — the repo is also a native plugin/extension for them:
+
+| Agent | Install |
+|---|---|
+| OpenAI Codex | `codex plugin marketplace add Benewe1337/tresor`, then install *tresor* from `/plugins` and trust its hook in `/hooks` |
+| Gemini CLI | `gemini extensions install https://github.com/Benewe1337/tresor` (uses the archive attached to each GitHub release) |
+| Cursor | add the repo as a plugin marketplace ("Import from Repo"), or copy it to `~/.cursor/plugins/local/tresor` |
+| VS Code | enable `chat.plugins.enabled`, then "Chat: Install Plugin from Source" with the repo URL (loads the Claude plugin format) |
+| any MCP client | `npx -y @benewe1337/tresor mcp` as a stdio server (once published to npm and the MCP Registry as `io.github.Benewe1337/tresor`) |
+
+Without plugin support, the command-line tool can write the agent's config files directly:
 
 ```bash
 tresor install all --dry-run      # shows which config files would change
@@ -41,7 +51,7 @@ See [Other agents](#other-agents) for what exactly is written where.
 **Command-line tool** for storing tokens and unlocking password managers in your own terminal:
 
 ```bash
-npm install -g github:Benewe1337/tresor
+npm install -g github:Benewe1337/tresor      # or, once on npm: npm install -g @benewe1337/tresor
 tresor --help
 ```
 
@@ -179,6 +189,15 @@ tresor scan --install-hook      # git pre-commit hook that runs "tresor scan --s
 
 Every stored value is searched in raw, Base64, Base64url, URL-encoded and JSON-escaped form. Findings show secret name, file and line — never the value. Exit code 1 on a hit, so it works in hooks and CI. Linked password-manager secrets are fetched for the scan too (`--local-only` skips them); values shorter than 8 characters are skipped to avoid false alarms.
 
+## Health check
+
+```bash
+tresor doctor                   # expired / soon expiring, old, unused, missing, locked
+tresor doctor --transcripts     # also: which tokens leaked into agent transcripts
+```
+
+Every finding comes with what to do and, for well-known services (GitHub, GitLab, OpenAI, Anthropic, Stripe, Vercel, Cloudflare, Hugging Face, Supabase, Sentry, AWS, Google Cloud …), a link to the page where the token is rotated. Exit code 1 if something needs action now.
+
 ## Policies and usage log
 
 ```bash
@@ -206,6 +225,7 @@ Policies only apply to what the agent does through the MCP server; your own `tre
 | `tresor_scan` | Look for stored values in files, staged changes or transcripts |
 | `tresor_import` | Move credentials from a `.env` into tresor |
 | `tresor_log` | Read the usage log |
+| `tresor_doctor` | Health check with rotation links |
 
 Deliberately **missing**: any tool that returns a value, deletes one, or changes a policy.
 

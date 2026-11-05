@@ -1,6 +1,6 @@
 ---
 name: tresor
-description: Use API tokens, passwords and other credentials without ever seeing them, via the tresor MCP tools (tresor_list, tresor_request, tresor_link, tresor_run, tresor_http, tresor_write_file, tresor_scan, tresor_import, tresor_log). Use whenever a task needs a secret — calling an authenticated API, running a CLI that wants a token (gh, vercel, stripe, openai, aws …), creating or cleaning up a .env, configuring an MCP server with credentials, checking for leaked secrets before a commit — or when the user mentions a token, API key, password, 1Password, Bitwarden, KeePassXC or pass. Also use when the user is about to paste a token into the chat.
+description: Use API tokens, passwords and other credentials without ever seeing them, via the tresor MCP tools (tresor_list, tresor_request, tresor_link, tresor_run, tresor_http, tresor_write_file, tresor_scan, tresor_import, tresor_log, tresor_doctor). Use whenever a task needs a secret — calling an authenticated API, running a CLI that wants a token (gh, vercel, stripe, openai, aws …), creating or cleaning up a .env, configuring an MCP server with credentials, checking for leaked secrets before a commit — or when the user mentions a token, API key, password, 1Password, Bitwarden, KeePassXC or pass. Also use when the user is about to paste a token into the chat.
 ---
 
 # tresor: use secrets without seeing them
@@ -44,6 +44,7 @@ Rules of thumb:
 - **Plaintext `.env` files**: offer `tresor_import` (`remove: true` once the user agrees). Afterwards the app runs via `tresor_run`, and `.tresor.json` can be committed. Point out if `.env` is tracked by git (the result warns about it).
 - **The user asks "did a token ever leak?"**: `tresor_scan` with `transcripts: true` and/or `paths`.
 - `tresor_log` answers "what did you use my token for?".
+- `tresor_doctor` lists expired, old, unused or leaked secrets with the URL where each is rotated — run it when the user asks about the state of their tokens, and pass on the links. Rotation itself is the user's job.
 
 ## 4. When something fails
 

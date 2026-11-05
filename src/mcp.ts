@@ -9,6 +9,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { appendAudit, readAudit } from './audit.js';
+import { runDoctor } from './doctor.js';
 import { runImport } from './import.js';
 import { httpWithSecrets, runWithSecrets, writeFileWithSecrets } from './inject.js';
 import { confirm, promptSecret } from './platform/prompt.js';
@@ -187,6 +188,13 @@ export function createServer(store: SecretStore, dialogs: Dialogs = { promptSecr
     }
     return { ...result, profile: result.profile?.path ?? null };
   }));
+
+  server.registerTool('tresor_doctor', {
+    description: 'Health check of all secrets: expired or old tokens, values missing from the keychain, locked password managers, unused secrets, missing host pins, and (transcripts=true) tokens that leaked into agent transcripts. Each finding has an action and, for known services, the URL where the token is rotated. Never returns values.',
+    inputSchema: {
+      transcripts: z.boolean().optional().describe('Also scan agent transcripts for leaked values (slower)'),
+    },
+  }, ({ transcripts }) => guarded(() => runDoctor(store, { transcripts })));
 
   server.registerTool('tresor_log', {
     description: 'Show the usage log: which secret was used when, for which command/host/file, and whether it was allowed. Never contains values.',

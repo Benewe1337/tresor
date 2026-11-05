@@ -8,7 +8,7 @@ import { existsSync } from 'fs';
 import { resolve as resolvePath } from 'path';
 import { appendAudit } from './audit.js';
 import { cmdDynamic } from './cli-dynamic.js';
-import { cmdImport, cmdInstall, cmdLog, cmdPolicy, cmdProfile, cmdScan } from './cli-tools.js';
+import { cmdDoctor, cmdImport, cmdInstall, cmdLog, cmdPolicy, cmdProfile, cmdScan } from './cli-tools.js';
 import { askYesNo, fail, readHidden, say, takeFlag, takeSwitch } from './cli-util.js';
 import { exec } from './platform/exec.js';
 import { takeClipboard } from './platform/clipboard.js';
@@ -60,6 +60,8 @@ Protect:
   tresor policy <name> [--allow-cmd gh,git] [--confirm always|session|off] [--expires 2027-01-31|off]
                        [--host h] [--clear-hosts] [--clear-allow-cmd]
   tresor log [name] [-n 50]        usage log (no values)
+  tresor doctor [--transcripts] [--stale-days 180] [--unused-days 90]
+        expired, old, unused, missing or leaked secrets – with links to rotate them (exit 1 on errors)
 
 Other agents (MCP server + guard hook + skill):
   tresor install <cursor|codex|gemini|vscode|all> [--dry-run]
@@ -234,6 +236,9 @@ async function main() {
         case 'policy': return cmdPolicy(store, args);
         case 'log': return cmdLog(args);
         case 'dynamic': return cmdDynamic(store, args);
+        case 'doctor': return cmdDoctor(store, args);
+        // `npx @benewe1337/tresor mcp` – entry point for MCP clients installing from a registry.
+        case 'mcp': return (await import('./mcp.js')).main();
         case 'install': return cmdInstall(args, false);
         case 'uninstall': return cmdInstall(args, true);
         case undefined:

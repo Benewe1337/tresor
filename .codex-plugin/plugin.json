@@ -1,0 +1,35 @@
+{
+  "name": "tresor",
+  "version": "0.5.0",
+  "description": "Let coding agents use your API tokens without ever seeing them: OS keychain, password managers and secret stores, short-lived credentials, leak scanner.",
+  "author": {
+    "name": "Benewe1337"
+  },
+  "homepage": "https://github.com/Benewe1337/tresor",
+  "repository": "https://github.com/Benewe1337/tresor",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "keywords": [
+    "secrets",
+    "api-tokens",
+    "keychain",
+    "password-manager",
+    "mcp",
+    "security"
+  ],
+  "skills": "./skills/",
+  "mcpServers": {
+    "tresor": {
+      "command": "node",
+      "args": [
+        "plugin/launch.mjs",
+        "server"
+      ]
+    }
+  },
+  "hooks": "./hooks/codex.json",
+  "interface": {
+    "displayName": "Tresor",
+    "shortDescription": "Use API tokens without exposing them to the agent",
+    "category": "Developer Tools"
+  }
+}

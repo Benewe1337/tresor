@@ -2,6 +2,7 @@
 
 import { AGENTS, detectAgents, installAgent, uninstallAgent, type AgentId } from './agents/install.js';
 import { formatAudit, readAudit } from './audit.js';
+import { formatDoctor, runDoctor } from './doctor.js';
 import { askYesNo, fail, say, takeFlag, takeList, takeSwitch } from './cli-util.js';
 import { planImport, runImport } from './import.js';
 import { isExpired } from './policy.js';
@@ -100,6 +101,15 @@ export function cmdInstall(args: string[], uninstall: boolean): void {
     for (const c of r.changes) if (c.action !== 'unchanged') say(`    ${c.action.padEnd(8)} ${c.file}`);
     for (const n of r.notes) say(`    → ${n}`);
   }
+}
+
+export async function cmdDoctor(store: SecretStore, args: string[]): Promise<void> {
+  const transcripts = takeSwitch(args, '--transcripts');
+  const staleDays = Number(takeFlag(args, '--stale-days')[0] ?? 180);
+  const unusedDays = Number(takeFlag(args, '--unused-days')[0] ?? 90);
+  const findings = await runDoctor(store, { transcripts, staleDays, unusedDays });
+  say(formatDoctor(findings, store.list().length));
+  if (findings.some(f => f.level === 'error')) process.exit(1);
 }
 
 export function cmdLog(args: string[]): void {

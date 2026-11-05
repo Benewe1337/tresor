@@ -1,6 +1,7 @@
 /** CLI commands for scanning, importing, project profiles, the usage log and policies. */
 import { AGENTS, detectAgents, installAgent, uninstallAgent } from './agents/install.js';
 import { formatAudit, readAudit } from './audit.js';
+import { formatDoctor, runDoctor } from './doctor.js';
 import { askYesNo, fail, say, takeFlag, takeList, takeSwitch } from './cli-util.js';
 import { planImport, runImport } from './import.js';
 import { isExpired } from './policy.js';
@@ -110,6 +111,15 @@ export function cmdInstall(args, uninstall) {
         for (const n of r.notes)
             say(`    → ${n}`);
     }
+}
+export async function cmdDoctor(store, args) {
+    const transcripts = takeSwitch(args, '--transcripts');
+    const staleDays = Number(takeFlag(args, '--stale-days')[0] ?? 180);
+    const unusedDays = Number(takeFlag(args, '--unused-days')[0] ?? 90);
+    const findings = await runDoctor(store, { transcripts, staleDays, unusedDays });
+    say(formatDoctor(findings, store.list().length));
+    if (findings.some(f => f.level === 'error'))
+        process.exit(1);
 }
 export function cmdLog(args) {
     const secret = takeFlag(args, '--secret')[0] ?? args[0];

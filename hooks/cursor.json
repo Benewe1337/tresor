@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": "node ./dist/guard-bin.js --format cursor",
+        "failClosed": true,
+        "timeout": 15
+      }
+    ],
+    "beforeReadFile": [
+      {
+        "command": "node ./dist/guard-bin.js --format cursor",
+        "failClosed": true,
+        "timeout": 15
+      }
+    ],
+    "preToolUse": [
+      {
+        "command": "node ./dist/guard-bin.js --format cursor",
+        "failClosed": true,
+        "timeout": 15
+      }
+    ]
+  }
+}
